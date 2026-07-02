@@ -29,7 +29,13 @@ function playerStatus(p: Player, state: GameState): HTMLElement {
     { class: `card player-card${p.downed ? ' downed' : ''}`, 'data-player': p.id },
     el('div', { class: 'card-header' }, avatarPreview(p.appearance), el('strong', {}, p.name), p.downed ? ' 🪦 à terre' : ''),
     hpBar(p.hp, p.maxHp),
-    el('div', { class: 'meta' }, energyDots(p.energy, p.maxEnergy), el('span', { class: 'threat' }, ` 😡 menace ${p.threat}`)),
+    el(
+      'div',
+      { class: 'meta' },
+      energyDots(p.energy, p.maxEnergy),
+      el('span', { class: 'threat' }, ` 😡 menace ${p.threat}`),
+      el('span', {}, ` 💰 ${p.gold}`),
+    ),
     statusChips(p),
     el(
       'div',

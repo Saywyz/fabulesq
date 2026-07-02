@@ -6,6 +6,7 @@ import { draftScreen } from './screens/draft';
 import { gameOverScreen } from './screens/gameover';
 import { lobbyScreen } from './screens/lobby';
 import { mapScreen } from './screens/map';
+import { eventScreen, restScreen, shopScreen } from './screens/nodes';
 
 export function render(state: GameState, ctx: Ctx): HTMLElement {
   switch (state.phase) {
@@ -20,6 +21,12 @@ export function render(state: GameState, ctx: Ctx): HTMLElement {
       return combatScreen(state, ctx);
     case 'reward_draft':
       return draftScreen(state, ctx);
+    case 'node_event':
+      return eventScreen(state, ctx);
+    case 'node_rest':
+      return restScreen(state, ctx);
+    case 'node_shop':
+      return shopScreen(state, ctx);
     case 'game_over':
       return gameOverScreen(state, ctx);
   }

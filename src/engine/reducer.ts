@@ -6,8 +6,9 @@ import { assignIntents, buildEnemies } from './combat/stateMachine';
 import { generateOffers } from './draft';
 import { BALANCE } from './data/balance';
 import { CLASSES, DEFAULT_CLASS_ID } from './data/classes';
+import { EVENTS, type EventEffect } from './data/events';
 import { DRAFT_POOL, SKILLS } from './data/skills';
-import { createRngState } from './rng';
+import { createRngState, next, nextInt } from './rng';
 import type { Action, GameState, MapNode, Player } from './types';
 
 export interface InitOptions {
@@ -18,7 +19,7 @@ export interface InitOptions {
 
 export function createInitialState(opts: InitOptions): GameState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     stateId: 0,
     hostId: opts.hostId,
     code: opts.code,
@@ -30,17 +31,23 @@ export function createInitialState(opts: InitOptions): GameState {
     draftOffers: {},
     draftPicks: {},
     rerollsLeft: {},
+    event: null,
+    restDone: {},
+    shopOffers: {},
+    shopDone: {},
   };
 }
 
-/** Carte linéaire MVP : N combats puis un boss (GAME_DESIGN.md §11). */
-function generateNodes(): MapNode[] {
-  const nodes: MapNode[] = [];
-  for (let i = 0; i < BALANCE.combatsBeforeBoss; i++) {
-    nodes.push({ index: i, type: 'combat', cleared: false });
-  }
-  nodes.push({ index: BALANCE.combatsBeforeBoss, type: 'boss', cleared: false });
-  return nodes;
+/** Carte d'un niveau (Phase 4) : le slot « spécial » tourne selon le niveau. */
+function generateNodes(levelNumber: number): MapNode[] {
+  return BALANCE.nodeLayout.map((slot, index) => ({
+    index,
+    type:
+      slot === 'special'
+        ? BALANCE.specialRotation[(levelNumber - 1) % BALANCE.specialRotation.length]!
+        : slot,
+    cleared: false,
+  }));
 }
 
 function withClass(p: Player, classId: string): Player {
@@ -89,6 +96,7 @@ function apply(state: GameState, action: Action): GameState {
         energy: 0,
         maxEnergy: 0,
         threat: 0,
+        gold: 0,
         ready: false,
         downed: false,
       };
@@ -131,7 +139,7 @@ function apply(state: GameState, action: Action): GameState {
       return {
         ...state,
         phase: 'map',
-        run: { ...state.run, nodes: generateNodes(), currentNode: 0, levelNumber: 1 },
+        run: { ...state.run, nodes: generateNodes(1), currentNode: 0, levelNumber: 1 },
       };
     }
 
@@ -140,32 +148,73 @@ function apply(state: GameState, action: Action): GameState {
       if (action.nodeIndex !== state.run.currentNode) return state;
       const node = state.run.nodes[action.nodeIndex];
       if (!node || node.cleared) return state;
-      if (node.type !== 'combat' && node.type !== 'boss') return state; // autres types : phases futures
 
-      // Nouveau combat : statuts et menace remis à zéro, énergie pleine.
-      const players = state.players.map((p) => ({
-        ...p,
-        statuses: [],
-        block: 0,
-        threat: 0,
-        energy: p.maxEnergy,
-      }));
-      const enemies = buildEnemies(node, players.length, state.run.levelNumber);
-      // combat_intent est enchaîné immédiatement : intentions assignées puis planification (§5.1).
-      const intents = assignIntents(enemies, players, state.rngState, state.run.levelNumber);
-      return {
-        ...state,
-        players,
-        rngState: intents.rngState,
-        phase: 'combat_planning',
-        combat: {
-          round: 1,
-          enemies: intents.enemies,
-          planned: {},
-          initiativeOrder: [],
-          log: [`Niveau ${state.run.levelNumber} — ${node.type === 'boss' ? 'BOSS' : `combat ${node.index + 1}`} !`],
-        },
-      };
+      if (node.type === 'combat' || node.type === 'elite' || node.type === 'boss') {
+        // Nouveau combat : statuts et menace remis à zéro, énergie pleine.
+        const players = state.players.map((p) => ({
+          ...p,
+          statuses: [],
+          block: 0,
+          threat: 0,
+          energy: p.maxEnergy,
+        }));
+        const enemies = buildEnemies(node, players.length, state.run.levelNumber);
+        const damageMult = node.type === 'elite' ? BALANCE.eliteDamageMult : 1;
+        // combat_intent est enchaîné immédiatement : intentions puis planification (§5.1).
+        const intents = assignIntents(enemies, players, state.rngState, state.run.levelNumber, damageMult);
+        const label =
+          node.type === 'boss' ? 'BOSS' : node.type === 'elite' ? 'ÉLITE' : `combat ${node.index + 1}`;
+        return {
+          ...state,
+          players,
+          rngState: intents.rngState,
+          phase: 'combat_planning',
+          combat: {
+            round: 1,
+            enemies: intents.enemies,
+            planned: {},
+            initiativeOrder: [],
+            log: [`Niveau ${state.run.levelNumber} — ${label} !`],
+          },
+        };
+      }
+
+      if (node.type === 'event') {
+        const roll = nextInt(state.rngState, 0, EVENTS.length - 1);
+        return {
+          ...state,
+          rngState: roll.state,
+          phase: 'node_event',
+          event: { id: EVENTS[roll.value]!.id },
+        };
+      }
+
+      if (node.type === 'rest') {
+        return {
+          ...state,
+          phase: 'node_rest',
+          restDone: Object.fromEntries(state.players.map((p) => [p.id, false])),
+        };
+      }
+
+      if (node.type === 'shop') {
+        let rng = state.rngState;
+        const shopOffers: GameState['shopOffers'] = {};
+        for (const p of state.players) {
+          const g = generateOffers(DRAFT_POOL, BALANCE.shopOfferCount, rng, p.skills);
+          rng = g.state;
+          shopOffers[p.id] = g.offers;
+        }
+        return {
+          ...state,
+          rngState: rng,
+          phase: 'node_shop',
+          shopOffers,
+          shopDone: Object.fromEntries(state.players.map((p) => [p.id, false])),
+        };
+      }
+
+      return state;
     }
 
     case 'plan_action': {
@@ -223,14 +272,14 @@ function apply(state: GameState, action: Action): GameState {
       if (state.draftPicks[action.playerId] != null) return state;
       const offers = state.draftOffers[action.playerId] ?? [];
       if (!offers.includes(action.skillId)) return state;
-      const next: GameState = {
+      const picked: GameState = {
         ...state,
         players: state.players.map((p) =>
           p.id === action.playerId ? { ...p, skills: [...p.skills, action.skillId] } : p,
         ),
         draftPicks: { ...state.draftPicks, [action.playerId]: action.skillId },
       };
-      return allDraftDone(next) ? advanceAfterDraft(next) : next;
+      return allDraftDone(picked) ? advanceNode(picked) : picked;
     }
 
     case 'draft_reroll': {
@@ -248,6 +297,76 @@ function apply(state: GameState, action: Action): GameState {
       };
     }
 
+    case 'event_choice': {
+      if (state.phase !== 'node_event' || !state.event) return state;
+      if (!state.players.some((p) => p.id === action.playerId)) return state;
+      const template = EVENTS.find((e) => e.id === state.event!.id);
+      const option = template?.options[action.optionIndex];
+      if (!option) return state;
+      const applied = applyEventEffects(state, option.effects);
+      return advanceNode({ ...state, players: applied.players, rngState: applied.rngState });
+    }
+
+    case 'rest_choice': {
+      if (state.phase !== 'node_rest') return state;
+      const player = state.players.find((p) => p.id === action.playerId);
+      if (!player || state.restDone[action.playerId]) return state;
+
+      let players = state.players;
+      if (action.choice === 'heal') {
+        const amount = Math.floor((player.maxHp * BALANCE.restHealPct) / 100);
+        players = players.map((p) =>
+          p.id === action.playerId ? { ...p, hp: Math.min(p.maxHp, p.hp + amount) } : p,
+        );
+      } else {
+        // Oublier une compétence (forge) — on garde toujours au moins une compétence.
+        if (!action.skillId || !player.skills.includes(action.skillId) || player.skills.length <= 1) {
+          return state;
+        }
+        players = players.map((p) =>
+          p.id === action.playerId ? { ...p, skills: p.skills.filter((s) => s !== action.skillId) } : p,
+        );
+      }
+      const rested: GameState = {
+        ...state,
+        players,
+        restDone: { ...state.restDone, [action.playerId]: true },
+      };
+      return state.players.every((p) => rested.restDone[p.id]) ? advanceNode(rested) : rested;
+    }
+
+    case 'shop_buy': {
+      if (state.phase !== 'node_shop') return state;
+      const player = state.players.find((p) => p.id === action.playerId);
+      if (!player || state.shopDone[action.playerId]) return state;
+      if (!(state.shopOffers[action.playerId] ?? []).includes(action.skillId)) return state;
+      const skill = SKILLS[action.skillId];
+      if (!skill) return state;
+      const price = BALANCE.shopPrices[skill.rarity];
+      if (player.gold < price) return state;
+      const bought: GameState = {
+        ...state,
+        players: state.players.map((p) =>
+          p.id === action.playerId
+            ? { ...p, gold: p.gold - price, skills: [...p.skills, action.skillId] }
+            : p,
+        ),
+        shopDone: { ...state.shopDone, [action.playerId]: true },
+      };
+      return state.players.every((p) => bought.shopDone[p.id]) ? advanceNode(bought) : bought;
+    }
+
+    case 'shop_skip': {
+      if (state.phase !== 'node_shop') return state;
+      if (!state.players.some((p) => p.id === action.playerId)) return state;
+      if (state.shopDone[action.playerId]) return state;
+      const skipped: GameState = {
+        ...state,
+        shopDone: { ...state.shopDone, [action.playerId]: true },
+      };
+      return state.players.every((p) => skipped.shopDone[p.id]) ? advanceNode(skipped) : skipped;
+    }
+
     case 'leave': {
       if (state.phase !== 'lobby') return state; // en partie : géré en Phase 3 (réseau)
       if (!state.players.some((p) => p.id === action.playerId)) return state;
@@ -259,21 +378,63 @@ function apply(state: GameState, action: Action): GameState {
   }
 }
 
+/** Applique les effets d'une option d'événement ; le gamble consomme le PRNG seedé. */
+function applyEventEffects(
+  state: GameState,
+  effects: EventEffect[],
+): { players: Player[]; rngState: number } {
+  let players = state.players;
+  let rng = state.rngState;
+  const apply = (eff: EventEffect): void => {
+    switch (eff.type) {
+      case 'heal_pct_all':
+        players = players.map((p) => ({
+          ...p,
+          hp: Math.min(p.maxHp, p.hp + Math.floor((p.maxHp * eff.pct) / 100)),
+        }));
+        break;
+      case 'hurt_pct_all':
+        // Hors combat : on blesse mais on ne met jamais à terre.
+        players = players.map((p) => ({
+          ...p,
+          hp: Math.max(1, p.hp - Math.floor((p.maxHp * eff.pct) / 100)),
+        }));
+        break;
+      case 'gold_all':
+        players = players.map((p) => ({ ...p, gold: p.gold + eff.amount }));
+        break;
+      case 'gamble': {
+        const roll = next(rng);
+        rng = roll.state;
+        (roll.value < 0.5 ? eff.win : eff.lose).forEach(apply);
+        break;
+      }
+    }
+  };
+  effects.forEach(apply);
+  return { players, rngState: rng };
+}
+
 function allDraftDone(state: GameState): boolean {
   return state.players.every(
     (p) => state.draftPicks[p.id] != null || (state.draftOffers[p.id] ?? []).length === 0,
   );
 }
 
-/** Fin de draft : nœud nettoyé, avance sur la carte ; après un boss, niveau suivant. */
-function advanceAfterDraft(state: GameState): GameState {
+/** Nœud terminé : marqué, avance sur la carte ; après un boss, niveau suivant. */
+function advanceNode(state: GameState): GameState {
   const clearedIndex = state.run.currentNode;
   const nodes = state.run.nodes.map((n) => (n.index === clearedIndex ? { ...n, cleared: true } : n));
   const clearedNode = nodes[clearedIndex]!;
 
   const run =
     clearedNode.type === 'boss'
-      ? { ...state.run, levelNumber: state.run.levelNumber + 1, nodes: generateNodes(), currentNode: 0 }
+      ? {
+          ...state.run,
+          levelNumber: state.run.levelNumber + 1,
+          nodes: generateNodes(state.run.levelNumber + 1),
+          currentNode: 0,
+        }
       : { ...state.run, nodes, currentNode: clearedIndex + 1 };
 
   return {
@@ -284,5 +445,9 @@ function advanceAfterDraft(state: GameState): GameState {
     draftOffers: {},
     draftPicks: {},
     rerollsLeft: {},
+    event: null,
+    restDone: {},
+    shopOffers: {},
+    shopDone: {},
   };
 }

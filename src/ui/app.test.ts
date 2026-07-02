@@ -137,6 +137,18 @@ describe('partie complète en hot-seat (critère d’acceptation Phase 2)', () =
         pick.click();
         continue;
       }
+      // Nœuds hors combat (Phase 4)
+      if (click('[data-event-option="0"]')) continue;
+      const rest = q<HTMLButtonElement>('button[data-rest-heal]');
+      if (rest) {
+        rest.click();
+        continue;
+      }
+      const skip = q<HTMLButtonElement>('button[data-shop-skip]');
+      if (skip) {
+        skip.click();
+        continue;
+      }
       throw new Error(`bloqué : aucun bouton jouable (guard=${guard})`);
     }
 

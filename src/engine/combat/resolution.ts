@@ -5,17 +5,25 @@ import { BALANCE } from '../data/balance';
 import { ENEMIES } from '../data/enemies';
 import { DRAFT_POOL, SKILLS } from '../data/skills';
 import { bossActionsPerTurn } from '../scaling';
-import type { Combatant, Enemy, GameState, Player, SkillId, StatusKind } from '../types';
-import { assignIntents } from './stateMachine';
+import type {
+  Combatant,
+  Enemy,
+  GameState,
+  Player,
+  SkillEffect,
+  SkillId,
+  StatusKind,
+} from '../types';
+import { assignIntents, spawnEnemy } from './stateMachine';
 import { applyStatus, dealDamage, getStacks, heal, removeStatus, tickEndOfTurn } from './status';
 import { chooseTarget } from './targeting';
 
-function reviveAt50<T extends Player>(p: T): T {
+function reviveAt<T extends Player>(p: T, pct: number): T {
   return {
     ...p,
     downed: false,
     alive: true,
-    hp: Math.max(1, Math.floor((p.maxHp * BALANCE.revivedHpPct) / 100)),
+    hp: Math.max(1, Math.floor((p.maxHp * pct) / 100)),
     statuses: [],
     block: 0,
   };
@@ -26,9 +34,25 @@ function bySpeed(a: Combatant, b: Combatant): number {
   return b.speed - a.speed || (a.id < b.id ? -1 : 1);
 }
 
+/** Montant d'un effet avec ses synergies (SkillEffect.scalesWith). */
+function effectAmount(eff: SkillEffect, actor: Combatant, target: Combatant): number {
+  let amount = eff.amount ?? 0;
+  if (eff.scalesWith === 'strength') {
+    amount += getStacks(actor, 'strength') * BALANCE.scalingStrengthBonusPerStack;
+  } else if (eff.scalesWith === 'tag_count' && eff.tag) {
+    amount *= 1 + getStacks(target, eff.tag as StatusKind);
+  } else if (eff.scalesWith === 'missing_hp') {
+    amount += Math.floor((actor.maxHp - actor.hp) / BALANCE.scalingMissingHpDivisor);
+  }
+  return amount;
+}
+
 export function resolveRound(state: GameState): GameState {
   const combat = state.combat;
   if (!combat) return state;
+
+  const node = state.run.nodes[state.run.currentNode];
+  const eliteDamageMult = node?.type === 'elite' ? BALANCE.eliteDamageMult : 1;
 
   let players = [...state.players];
   let enemies = [...combat.enemies];
@@ -59,21 +83,32 @@ export function resolveRound(state: GameState): GameState {
     const skill = SKILLS[planned.skillId];
     if (!skill || actor.energy < skill.cost) continue;
 
-    // Résolution de la cible principale ; cible invalide = action perdue, sans redirection (§5.1).
-    let targetEnemyId: string | undefined;
-    let targetPlayerId: string | undefined;
+    // Cibles ; cible unique invalide = action perdue, sans redirection (§5.1).
+    let enemyTargets: string[] = [];
+    let playerTargets: string[] = [];
     let lost = false;
-    if (skill.targeting === 'enemy') {
-      const t = enemyById(planned.targetId);
-      if (t?.alive) targetEnemyId = t.id;
-      else lost = true;
-    } else if (skill.targeting === 'ally') {
-      const t = playerById(planned.targetId);
-      const needsDowned = skill.effects.some((e) => e.type === 'revive');
-      if (t && (needsDowned ? t.downed : t.alive && !t.downed)) targetPlayerId = t.id;
-      else lost = true;
-    } else {
-      targetPlayerId = pid; // 'self'
+    switch (skill.targeting) {
+      case 'enemy': {
+        const t = enemyById(planned.targetId);
+        if (t?.alive) enemyTargets = [t.id];
+        else lost = true;
+        break;
+      }
+      case 'all_enemies':
+        enemyTargets = enemies.filter((e) => e.alive).map((e) => e.id);
+        break;
+      case 'ally': {
+        const t = playerById(planned.targetId);
+        const needsDowned = skill.effects.some((e) => e.type === 'revive');
+        if (t && (needsDowned ? t.downed : t.alive && !t.downed)) playerTargets = [t.id];
+        else lost = true;
+        break;
+      }
+      case 'all_allies':
+        playerTargets = players.filter((p) => p.alive && !p.downed).map((p) => p.id);
+        break;
+      default:
+        playerTargets = [pid]; // 'self'
     }
     if (lost) {
       log.push(`L'action de ${actor.name} (${skill.name}) est perdue : cible invalide.`);
@@ -85,55 +120,70 @@ export function resolveRound(state: GameState): GameState {
     for (const eff of skill.effects) {
       switch (eff.type) {
         case 'damage': {
-          const target = enemyById(targetEnemyId);
-          if (!target?.alive) break; // déjà tombé sous un effet précédent
-          const res = dealDamage(playerById(pid)!, target, eff.amount ?? 0);
-          updEnemy(target.id, () => res.target);
-          updPlayer(pid, (p) => ({ ...p, threat: p.threat + res.dealt * BALANCE.threatPerDamage }));
-          log.push(`${actor.name} inflige ${res.dealt} à ${target.name} (${skill.name}).`);
-          if (!res.target.alive) log.push(`${target.name} est vaincu !`);
+          for (const targetId of enemyTargets) {
+            const target = enemyById(targetId);
+            if (!target?.alive) continue; // déjà tombé sous un effet précédent
+            const attacker = playerById(pid)!;
+            const res = dealDamage(attacker, target, effectAmount(eff, attacker, target));
+            updEnemy(targetId, () => res.target);
+            updPlayer(pid, (p) => ({ ...p, threat: p.threat + res.dealt * BALANCE.threatPerDamage }));
+            log.push(`${actor.name} inflige ${res.dealt} à ${target.name} (${skill.name}).`);
+            if (!res.target.alive) log.push(`${target.name} est vaincu !`);
+          }
           break;
         }
         case 'detonate': {
-          const target = enemyById(targetEnemyId);
-          if (!target?.alive) break;
           const kind = (eff.tag ?? 'mark') as StatusKind;
-          const stacks = getStacks(target, kind);
-          if (stacks === 0) {
-            log.push(`${skill.name} : aucune marque à détoner sur ${target.name}.`);
-            break;
+          for (const targetId of enemyTargets) {
+            const target = enemyById(targetId);
+            if (!target?.alive) continue;
+            const stacks = getStacks(target, kind);
+            if (stacks === 0) {
+              log.push(`${skill.name} : rien à détoner sur ${target.name}.`);
+              continue;
+            }
+            const attacker = playerById(pid)!;
+            const res = dealDamage(attacker, target, (eff.amount ?? 0) * stacks);
+            updEnemy(targetId, () => removeStatus(res.target, kind));
+            updPlayer(pid, (p) => ({ ...p, threat: p.threat + res.dealt * BALANCE.threatPerDamage }));
+            log.push(`${actor.name} détone ${stacks} ${kind} : ${res.dealt} dégâts à ${target.name} !`);
+            if (!res.target.alive) log.push(`${target.name} est vaincu !`);
           }
-          const res = dealDamage(playerById(pid)!, target, (eff.amount ?? 0) * stacks);
-          updEnemy(target.id, () => removeStatus(res.target, kind));
-          updPlayer(pid, (p) => ({ ...p, threat: p.threat + res.dealt * BALANCE.threatPerDamage }));
-          log.push(`${actor.name} détone ${stacks} marque(s) : ${res.dealt} dégâts à ${target.name} !`);
-          if (!res.target.alive) log.push(`${target.name} est vaincu !`);
           break;
         }
         case 'block': {
-          updPlayer(targetPlayerId ?? pid, (p) => ({ ...p, block: p.block + (eff.amount ?? 0) }));
-          log.push(`${actor.name} gagne ${eff.amount ?? 0} de bouclier.`);
+          for (const targetId of playerTargets) {
+            updPlayer(targetId, (p) => ({ ...p, block: p.block + (eff.amount ?? 0) }));
+          }
+          log.push(`${actor.name} : +${eff.amount ?? 0} bouclier (${skill.name}).`);
           break;
         }
         case 'apply_status': {
           if (!eff.status) break;
-          if (targetEnemyId) {
-            updEnemy(targetEnemyId, (e) =>
-              applyStatus(e, eff.status!, eff.stacks ?? 1, eff.duration ?? -1, pid),
-            );
-            log.push(`${actor.name} applique ${eff.stacks ?? 1} ${eff.status} à ${enemyById(targetEnemyId)!.name}.`);
+          if (enemyTargets.length > 0) {
+            for (const targetId of enemyTargets) {
+              const target = enemyById(targetId);
+              if (!target?.alive) continue;
+              updEnemy(targetId, (e) =>
+                applyStatus(e, eff.status!, eff.stacks ?? 1, eff.duration ?? -1, pid),
+              );
+            }
+            log.push(`${actor.name} applique ${eff.stacks ?? 1} ${eff.status} (${skill.name}).`);
           } else {
-            updPlayer(targetPlayerId ?? pid, (p) =>
-              applyStatus(p, eff.status!, eff.stacks ?? 1, eff.duration ?? -1, pid),
-            );
-            log.push(`${actor.name} applique ${eff.stacks ?? 1} ${eff.status}.`);
+            for (const targetId of playerTargets) {
+              updPlayer(targetId, (p) =>
+                applyStatus(p, eff.status!, eff.stacks ?? 1, eff.duration ?? -1, pid),
+              );
+            }
+            log.push(`${actor.name} applique ${eff.stacks ?? 1} ${eff.status} (${skill.name}).`);
           }
           break;
         }
         case 'heal': {
-          const targetId = targetPlayerId ?? pid;
-          updPlayer(targetId, (p) => heal(p, eff.amount ?? 0));
-          log.push(`${actor.name} rend ${eff.amount ?? 0} PV à ${playerById(targetId)!.name}.`);
+          for (const targetId of playerTargets) {
+            updPlayer(targetId, (p) => heal(p, eff.amount ?? 0));
+          }
+          log.push(`${actor.name} soigne (${skill.name}).`);
           break;
         }
         case 'taunt': {
@@ -142,9 +192,10 @@ export function resolveRound(state: GameState): GameState {
           break;
         }
         case 'revive': {
-          if (!targetPlayerId) break;
-          updPlayer(targetPlayerId, reviveAt50);
-          log.push(`${actor.name} relève ${playerById(targetPlayerId)!.name} !`);
+          for (const targetId of playerTargets) {
+            updPlayer(targetId, (p) => reviveAt(p, eff.amount ?? BALANCE.revivedHpPct));
+            log.push(`${actor.name} relève ${playerById(targetId)!.name} !`);
+          }
           break;
         }
       }
@@ -193,7 +244,7 @@ export function resolveRound(state: GameState): GameState {
       case 'buff': {
         const move = template.moves.find((m) => m.kind === 'buff');
         if (move?.status) {
-          updEnemy(eid, (e) => applyStatus(e, move.status!, move.stacks ?? 1, -1));
+          updEnemy(eid, (x) => applyStatus(x, move.status!, move.stacks ?? 1, -1));
         }
         log.push(`${enemy.name} ${intent.description}.`);
         break;
@@ -210,7 +261,35 @@ export function resolveRound(state: GameState): GameState {
           updPlayer(target.id, (p) =>
             applyStatus(p, move.status!, move.stacks ?? 1, BALANCE.enemyDebuffDuration, eid),
           );
-          log.push(`${enemy.name} rend ${target.name} ${move.status} !`);
+          log.push(`${enemy.name} inflige ${move.status} à ${target.name} !`);
+        }
+        break;
+      }
+      case 'summon': {
+        const move = template.moves.find((m) => m.kind === 'summon');
+        const aliveCount = enemies.filter((e) => e.alive).length;
+        if (move?.summons && aliveCount < BALANCE.maxEnemies) {
+          const summonedTemplate = ENEMIES[move.summons]!;
+          const id = `e${enemies.length + 1}`;
+          const hpMult = node?.type === 'elite' ? BALANCE.eliteHpMult : 1;
+          enemies = [
+            ...enemies,
+            spawnEnemy(move.summons, id, `${summonedTemplate.name} (invoquée)`, players.length, state.run.levelNumber, hpMult),
+          ];
+          log.push(`${enemy.name} invoque ${summonedTemplate.name} !`);
+        }
+        break;
+      }
+      case 'heal': {
+        let target = enemyById(intent.targetId);
+        if (!target?.alive) {
+          target = enemies
+            .filter((x) => x.alive)
+            .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp || (a.id < b.id ? -1 : 1))[0];
+        }
+        if (target) {
+          updEnemy(target.id, (e) => heal(e, intent.value ?? 0));
+          log.push(`${enemy.name} soigne ${target.name} de ${intent.value ?? 0} PV.`);
         }
         break;
       }
@@ -257,15 +336,29 @@ export function resolveRound(state: GameState): GameState {
   }
 
   if (allEnemiesDead) {
-    log.push('Victoire !');
-    // §8 : les joueurs à terre ressuscitent à la fin du niveau.
-    players = players.map((p) => (p.downed ? reviveAt50(p) : p));
+    // Butin (GAME_DESIGN §9) et résurrection de fin de niveau (§8)
+    const goldReward =
+      node?.type === 'boss'
+        ? BALANCE.goldPerBoss
+        : node?.type === 'elite'
+          ? BALANCE.goldPerElite
+          : BALANCE.goldPerCombat;
+    log.push(`Victoire ! Chacun ramasse ${goldReward} pièces d'or.`);
+    players = players.map((p) => ({
+      ...(p.downed ? reviveAt(p, BALANCE.revivedHpPct) : p),
+      gold: p.gold + goldReward,
+    }));
 
+    // Après un élite ou un boss, le tirage est plus généreux (GAME_DESIGN §3)
+    const weights =
+      node?.type === 'elite' || node?.type === 'boss'
+        ? BALANCE.eliteRarityWeights
+        : BALANCE.rarityWeights;
     const draftOffers: Record<string, SkillId[]> = {};
     const draftPicks: Record<string, SkillId | null> = {};
     const rerollsLeft: Record<string, number> = {};
     for (const p of players) {
-      const g = generateOffers(DRAFT_POOL, BALANCE.draftOfferCount, rng, p.skills);
+      const g = generateOffers(DRAFT_POOL, BALANCE.draftOfferCount, rng, p.skills, weights);
       rng = g.state;
       draftOffers[p.id] = g.offers;
       draftPicks[p.id] = null;
@@ -285,7 +378,7 @@ export function resolveRound(state: GameState): GameState {
 
   // ——— Round suivant : énergie rechargée, nouvelles intentions ———
   players = players.map((p) => ({ ...p, energy: p.maxEnergy }));
-  const intents = assignIntents(enemies, players, rng, state.run.levelNumber);
+  const intents = assignIntents(enemies, players, rng, state.run.levelNumber, eliteDamageMult);
   return {
     ...state,
     players,

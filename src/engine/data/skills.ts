@@ -1,8 +1,14 @@
-// Pool de compétences — Phase 1 : ~9 compétences dont une synergie inter-joueurs
-// (marque + détonation, GAME_DESIGN.md §6).
+// Pool de compétences — Phase 4 : ~27 compétences, plusieurs synergies inter-joueurs
+// (GAME_DESIGN.md §6). Les combos naissent des tags et des statuts posés par les alliés :
+//   marque  : hunters_mark / mark_volley  →  detonate_marks
+//   brûlure : ignite / fireball / flame_wave  →  pyroclasm
+//   poison  : poison_dagger / venom_spray  →  serpent_fang (profite des stacks, sans consommer)
+//   force   : war_cry (équipe)  →  crushing_blow (scalesWith strength)
+//   défense : guardian_light / shield_wall (protéger les fragiles), expose_armor (l'équipe tape plus fort)
 import type { Skill, SkillId } from '../types';
 
 export const SKILLS: Record<SkillId, Skill> = {
+  // ————— Base —————
   strike: {
     id: 'strike',
     name: 'Frappe',
@@ -36,10 +42,32 @@ export const SKILLS: Record<SkillId, Skill> = {
       { type: 'block', amount: 3 },
     ],
   },
+  second_wind: {
+    id: 'second_wind',
+    name: 'Second souffle',
+    description: 'Récupère 6 PV.',
+    rarity: 'common',
+    cost: 1,
+    targeting: 'self',
+    tags: ['holy'],
+    effects: [{ type: 'heal', amount: 6 }],
+  },
+
+  // ————— Feu (brûlure → détonation) —————
+  ignite: {
+    id: 'ignite',
+    name: 'Embrasement',
+    description: 'Applique 4 brûlures (dégâts chaque tour, se consume).',
+    rarity: 'common',
+    cost: 1,
+    targeting: 'enemy',
+    tags: ['fire'],
+    effects: [{ type: 'apply_status', status: 'burn', stacks: 4, duration: -1 }],
+  },
   fireball: {
     id: 'fireball',
     name: 'Boule de feu',
-    description: 'Inflige 4 dégâts et applique 3 brûlures (dégâts chaque tour, se consume).',
+    description: 'Inflige 4 dégâts et applique 3 brûlures.',
     rarity: 'rare',
     cost: 2,
     targeting: 'enemy',
@@ -49,6 +77,31 @@ export const SKILLS: Record<SkillId, Skill> = {
       { type: 'apply_status', status: 'burn', stacks: 3, duration: -1 },
     ],
   },
+  flame_wave: {
+    id: 'flame_wave',
+    name: 'Vague de flammes',
+    description: 'Inflige 3 dégâts à TOUS les ennemis et applique 1 brûlure.',
+    rarity: 'rare',
+    cost: 2,
+    targeting: 'all_enemies',
+    tags: ['fire'],
+    effects: [
+      { type: 'damage', amount: 3 },
+      { type: 'apply_status', status: 'burn', stacks: 1, duration: -1 },
+    ],
+  },
+  pyroclasm: {
+    id: 'pyroclasm',
+    name: 'Pyroclasme',
+    description: 'Consume toutes les brûlures de la cible : 3 dégâts par brûlure (même posées par un allié).',
+    rarity: 'rare',
+    cost: 2,
+    targeting: 'enemy',
+    tags: ['fire'],
+    effects: [{ type: 'detonate', tag: 'burn', amount: 3 }],
+  },
+
+  // ————— Poison (stacks alliés → morsure) —————
   poison_dagger: {
     id: 'poison_dagger',
     name: 'Dague empoisonnée',
@@ -62,6 +115,28 @@ export const SKILLS: Record<SkillId, Skill> = {
       { type: 'apply_status', status: 'poison', stacks: 2, duration: 3 },
     ],
   },
+  venom_spray: {
+    id: 'venom_spray',
+    name: 'Nuage toxique',
+    description: 'Applique 1 poison à TOUS les ennemis pendant 3 tours.',
+    rarity: 'common',
+    cost: 1,
+    targeting: 'all_enemies',
+    tags: ['poison'],
+    effects: [{ type: 'apply_status', status: 'poison', stacks: 1, duration: 3 }],
+  },
+  serpent_fang: {
+    id: 'serpent_fang',
+    name: 'Croc de vipère',
+    description: '2 dégâts, multipliés par les poisons sur la cible (sans les consommer).',
+    rarity: 'rare',
+    cost: 1,
+    targeting: 'enemy',
+    tags: ['poison', 'physical'],
+    effects: [{ type: 'damage', amount: 2, scalesWith: 'tag_count', tag: 'poison' }],
+  },
+
+  // ————— Marque (posée par un allié → détonée par un autre) —————
   hunters_mark: {
     id: 'hunters_mark',
     name: 'Marque du chasseur',
@@ -71,6 +146,19 @@ export const SKILLS: Record<SkillId, Skill> = {
     targeting: 'enemy',
     tags: ['mark'],
     effects: [{ type: 'apply_status', status: 'mark', stacks: 3, duration: -1 }],
+  },
+  mark_volley: {
+    id: 'mark_volley',
+    name: 'Volée marquée',
+    description: '1 dégât à tous les ennemis et 1 marque sur chacun.',
+    rarity: 'common',
+    cost: 1,
+    targeting: 'all_enemies',
+    tags: ['mark'],
+    effects: [
+      { type: 'damage', amount: 1 },
+      { type: 'apply_status', status: 'mark', stacks: 1, duration: -1 },
+    ],
   },
   detonate_marks: {
     id: 'detonate_marks',
@@ -82,6 +170,8 @@ export const SKILLS: Record<SkillId, Skill> = {
     tags: ['mark'],
     effects: [{ type: 'detonate', tag: 'mark', amount: 4 }],
   },
+
+  // ————— Sacré / protection —————
   rally_heal: {
     id: 'rally_heal',
     name: 'Encouragement',
@@ -91,6 +181,36 @@ export const SKILLS: Record<SkillId, Skill> = {
     targeting: 'ally',
     tags: ['holy'],
     effects: [{ type: 'heal', amount: 5 }],
+  },
+  guardian_light: {
+    id: 'guardian_light',
+    name: 'Lumière gardienne',
+    description: 'Donne 4 de bouclier à un allié.',
+    rarity: 'common',
+    cost: 1,
+    targeting: 'ally',
+    tags: ['holy'],
+    effects: [{ type: 'block', amount: 4 }],
+  },
+  consecrate: {
+    id: 'consecrate',
+    name: 'Consécration',
+    description: 'Rend 4 PV à toute l’équipe.',
+    rarity: 'rare',
+    cost: 2,
+    targeting: 'all_allies',
+    tags: ['holy'],
+    effects: [{ type: 'heal', amount: 4 }],
+  },
+  shield_wall: {
+    id: 'shield_wall',
+    name: 'Mur de boucliers',
+    description: 'Donne 3 de bouclier à toute l’équipe.',
+    rarity: 'rare',
+    cost: 2,
+    targeting: 'all_allies',
+    tags: ['physical'],
+    effects: [{ type: 'block', amount: 3 }],
   },
   helping_hand: {
     id: 'helping_hand',
@@ -102,7 +222,96 @@ export const SKILLS: Record<SkillId, Skill> = {
     tags: ['holy'],
     effects: [{ type: 'revive' }],
   },
+
+  // ————— Force / physique —————
+  war_cry: {
+    id: 'war_cry',
+    name: 'Cri de guerre',
+    description: 'Toute l’équipe gagne 2 de force pendant 2 tours.',
+    rarity: 'rare',
+    cost: 2,
+    targeting: 'all_allies',
+    tags: ['physical'],
+    effects: [{ type: 'apply_status', status: 'strength', stacks: 2, duration: 2 }],
+  },
+  crushing_blow: {
+    id: 'crushing_blow',
+    name: 'Coup écrasant',
+    description: '5 dégâts, amplifiés par votre force (synergie avec Cri de guerre).',
+    rarity: 'common',
+    cost: 2,
+    targeting: 'enemy',
+    tags: ['physical'],
+    effects: [{ type: 'damage', amount: 5, scalesWith: 'strength' }],
+  },
+  desperate_strike: {
+    id: 'desperate_strike',
+    name: 'Frappe désespérée',
+    description: '4 dégâts, +1 par tranche de 3 PV manquants.',
+    rarity: 'rare',
+    cost: 1,
+    targeting: 'enemy',
+    tags: ['physical'],
+    effects: [{ type: 'damage', amount: 4, scalesWith: 'missing_hp' }],
+  },
+
+  // ————— Débuffs (toute l'équipe en profite) —————
+  expose_armor: {
+    id: 'expose_armor',
+    name: 'Brèche',
+    description: 'Rend un ennemi vulnérable (+50 % dégâts subis) pendant 2 tours.',
+    rarity: 'common',
+    cost: 1,
+    targeting: 'enemy',
+    tags: ['physical'],
+    effects: [{ type: 'apply_status', status: 'vulnerable', stacks: 1, duration: 2 }],
+  },
+  weakening_hex: {
+    id: 'weakening_hex',
+    name: 'Malédiction',
+    description: 'Affaiblit un ennemi (−25 % dégâts infligés) pendant 2 tours.',
+    rarity: 'common',
+    cost: 1,
+    targeting: 'enemy',
+    tags: ['arcane'],
+    effects: [{ type: 'apply_status', status: 'weak', stacks: 1, duration: 2 }],
+  },
+
+  // ————— Légendaires —————
+  apocalypse: {
+    id: 'apocalypse',
+    name: 'Apocalypse',
+    description: 'Inflige 8 dégâts à TOUS les ennemis.',
+    rarity: 'legendary',
+    cost: 3,
+    targeting: 'all_enemies',
+    tags: ['fire'],
+    effects: [{ type: 'damage', amount: 8 }],
+  },
+  divine_intervention: {
+    id: 'divine_intervention',
+    name: 'Intervention divine',
+    description: 'Relève un allié à terre avec TOUS ses PV.',
+    rarity: 'legendary',
+    cost: 2,
+    targeting: 'ally',
+    tags: ['holy'],
+    effects: [{ type: 'revive', amount: 100 }],
+  },
+  avatar_of_war: {
+    id: 'avatar_of_war',
+    name: 'Avatar de guerre',
+    description: 'Gagne 3 de force (jusqu’à la fin du combat) et 5 de bouclier.',
+    rarity: 'legendary',
+    cost: 2,
+    targeting: 'self',
+    tags: ['physical'],
+    effects: [
+      { type: 'apply_status', status: 'strength', stacks: 3, duration: -1 },
+      { type: 'block', amount: 5 },
+    ],
+  },
 };
 
-/** Compétences proposables au draft (tout le pool en Phase 1). */
+/** Compétences proposables au draft (tout le pool). */
 export const DRAFT_POOL: SkillId[] = Object.keys(SKILLS);

@@ -1,4 +1,4 @@
-// Bestiaire — Phase 1 : 2 ennemis standards + 1 boss (BUILD_PLAN Phase 1).
+// Bestiaire — Phase 4 : 4 ennemis + 1 boss, mécaniques télégraphiées (GAME_DESIGN §4.3).
 // Data-driven : les "moves" décrivent les intentions possibles, la logique vit dans combat/.
 import type { IntentKind, StatusKind } from '../types';
 
@@ -10,6 +10,7 @@ export interface EnemyMove {
   status?: StatusKind; // pour les moves buff/debuff
   stacks?: number;
   chargeTurns?: number; // pour les attaques chargées
+  summons?: string; // enemyType invoqué (levier de scaling §7)
 }
 
 export interface EnemyTemplate {
@@ -43,8 +44,33 @@ export const ENEMIES: Record<string, EnemyTemplate> = {
     aiProfile: 'focus_lowest_hp',
     isBoss: false,
     moves: [
-      { kind: 'attack', value: 6, weight: 3, description: 'attaque 6' },
+      { kind: 'attack', value: 5, weight: 3, description: 'attaque 5' },
       { kind: 'debuff', status: 'vulnerable', stacks: 1, weight: 1, description: 'expose une cible (vulnérable)' },
+    ],
+  },
+  cultist: {
+    enemyType: 'cultist',
+    name: 'Cultiste',
+    baseHp: 12,
+    speed: 5,
+    aiProfile: 'random',
+    isBoss: false,
+    moves: [
+      { kind: 'attack', value: 5, weight: 2, description: 'attaque 5' },
+      { kind: 'summon', summons: 'slime', weight: 2, description: 'invoque une gelée' },
+      { kind: 'debuff', status: 'weak', stacks: 1, weight: 1, description: 'maudit une cible (faiblesse)' },
+    ],
+  },
+  shaman: {
+    enemyType: 'shaman',
+    name: 'Chamane noir',
+    baseHp: 12,
+    speed: 3,
+    aiProfile: 'focus_lowest_hp',
+    isBoss: false,
+    moves: [
+      { kind: 'heal', value: 6, weight: 2, description: 'soigne son allié le plus blessé (6)' },
+      { kind: 'attack', value: 4, weight: 2, description: 'attaque 4' },
     ],
   },
   ogre_boss: {
@@ -62,12 +88,20 @@ export const ENEMIES: Record<string, EnemyTemplate> = {
   },
 };
 
-/** Composition des vagues par position de nœud (avant le boss). */
-export const WAVES: string[][] = [
+/** Vagues des nœuds combat — choisies par rotation déterministe (niveau + index de nœud). */
+export const COMBAT_WAVES: string[][] = [
   ['slime', 'slime'],
   ['goblin', 'slime'],
-  ['goblin', 'goblin'],
   ['goblin', 'goblin', 'slime'],
+  ['cultist', 'goblin'],
+  ['shaman', 'goblin', 'slime'],
+];
+
+/** Vagues élites : plus rudes, multipliées par eliteHpMult / eliteDamageMult. */
+export const ELITE_WAVES: string[][] = [
+  ['cultist', 'goblin', 'goblin'],
+  ['shaman', 'cultist', 'goblin'],
+  ['goblin', 'goblin', 'goblin', 'slime'],
 ];
 
 export const BOSS_WAVE: string[] = ['ogre_boss'];

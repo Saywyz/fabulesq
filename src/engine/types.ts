@@ -13,6 +13,9 @@ export type Phase =
   | 'combat_planning'
   | 'combat_resolution'
   | 'reward_draft'
+  | 'node_event' // choix narratif (Phase 4)
+  | 'node_rest' // repos/forge (Phase 4)
+  | 'node_shop' // boutique (Phase 4)
   | 'game_over';
 
 export interface Appearance {
@@ -63,6 +66,7 @@ export interface Player extends Combatant {
   energy: number;
   maxEnergy: number;
   threat: number; // aggro accumulée
+  gold: number; // butin de combat, dépensé en boutique (GAME_DESIGN §9)
   ready: boolean; // lobby
   downed: boolean; // à terre dans le niveau courant
 }
@@ -155,6 +159,11 @@ export interface GameState {
   draftOffers: Record<PlayerId, SkillId[]>; // 3 offres par joueur
   draftPicks: Record<PlayerId, SkillId | null>;
   rerollsLeft: Record<PlayerId, number>;
+  // Nœuds hors combat (Phase 4)
+  event: { id: string } | null; // événement en cours au nœud courant
+  restDone: Record<PlayerId, boolean>; // qui a fait son choix de repos
+  shopOffers: Record<PlayerId, SkillId[]>; // étal de la boutique par joueur
+  shopDone: Record<PlayerId, boolean>; // qui a acheté ou passé
 }
 
 // Actions = seule façon de faire évoluer l'état. Émises par l'UI, appliquées par le reducer.
@@ -170,4 +179,9 @@ export type Action =
   | { t: 'resolve_round' } // déclenché quand tous ont confirmé
   | { t: 'draft_pick'; playerId: PlayerId; skillId: SkillId }
   | { t: 'draft_reroll'; playerId: PlayerId }
+  // Nœuds hors combat (Phase 4)
+  | { t: 'event_choice'; playerId: PlayerId; optionIndex: number } // décision d'équipe
+  | { t: 'rest_choice'; playerId: PlayerId; choice: 'heal' | 'forget'; skillId?: SkillId }
+  | { t: 'shop_buy'; playerId: PlayerId; skillId: SkillId }
+  | { t: 'shop_skip'; playerId: PlayerId }
   | { t: 'leave'; playerId: PlayerId };

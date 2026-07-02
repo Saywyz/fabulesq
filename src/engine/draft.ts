@@ -9,12 +9,15 @@ export interface OffersResult {
   state: number;
 }
 
+export type RarityWeights = Record<'common' | 'rare' | 'legendary', number>;
+
 /** Tire `count` compétences distinctes du pool, hors compétences déjà possédées. */
 export function generateOffers(
   pool: SkillId[],
   count: number,
   rngState: number,
   owned: SkillId[],
+  rarityWeights: RarityWeights = BALANCE.rarityWeights,
 ): OffersResult {
   const ownedSet = new Set(owned);
   let available = pool.filter((id) => !ownedSet.has(id) && SKILLS[id] !== undefined);
@@ -22,7 +25,7 @@ export function generateOffers(
   let state = rngState;
 
   while (offers.length < count && available.length > 0) {
-    const weights = available.map((id) => BALANCE.rarityWeights[SKILLS[id]!.rarity]);
+    const weights = available.map((id) => rarityWeights[SKILLS[id]!.rarity]);
     const total = weights.reduce((sum, w) => sum + w, 0);
     const r = nextInt(state, 1, total);
     state = r.state;
