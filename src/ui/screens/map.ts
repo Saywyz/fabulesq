@@ -2,6 +2,7 @@
 import type { GameState, MapNode } from '../../engine/types';
 import type { Ctx } from '../context';
 import { el } from '../dom';
+import { charSprite } from '../pixel/sprite';
 
 const NODE_ICONS: Record<MapNode['type'], string> = {
   combat: '⚔️',
@@ -46,7 +47,14 @@ export function mapScreen(state: GameState, ctx: Ctx): HTMLElement {
     el(
       'div',
       { class: 'party-strip' },
-      ...state.players.map((p) => el('span', { class: 'chip' }, `${p.name} ${p.hp}/${p.maxHp} PV`)),
+      ...state.players.map((p) =>
+        el(
+          'span',
+          { class: 'chip party-chip' },
+          charSprite(p.appearance, 2),
+          ` ${p.name} · ${p.hp}/${p.maxHp} PV · 💰${p.gold}`,
+        ),
+      ),
     ),
   );
 }

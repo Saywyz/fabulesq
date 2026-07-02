@@ -3,6 +3,7 @@ import { SKILLS } from '../../engine/data/skills';
 import type { GameState } from '../../engine/types';
 import type { Ctx } from '../context';
 import { el } from '../dom';
+import { charSprite } from '../pixel/sprite';
 
 export function gameOverScreen(state: GameState, _ctx: Ctx): HTMLElement {
   const { levelNumber, currentNode } = state.run;
@@ -17,8 +18,9 @@ export function gameOverScreen(state: GameState, _ctx: Ctx): HTMLElement {
       ...state.players.map((p) =>
         el(
           'div',
-          { class: 'card' },
-          el('strong', {}, p.name),
+          { class: 'card gameover-card' },
+          el('div', { class: 'card-header' }, charSprite(p.appearance, 4), el('strong', {}, p.name)),
+          el('p', { class: 'muted' }, `💰 ${p.gold} · ${p.skills.length} compétences`),
           el('p', { class: 'muted' }, `Build : ${p.skills.map((id) => SKILLS[id]?.name ?? id).join(' · ')}`),
         ),
       ),

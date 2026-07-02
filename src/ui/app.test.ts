@@ -6,6 +6,9 @@ import { mountApp } from './app';
 
 let root: HTMLElement;
 
+// jsdom n'implémente pas le canvas 2D : on neutralise pour éviter le bruit de logs.
+HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
+
 function q<T extends HTMLElement = HTMLElement>(sel: string): T | null {
   return root.querySelector<T>(sel);
 }
@@ -156,6 +159,35 @@ describe('partie complète en hot-seat (critère d’acceptation Phase 2)', () =
     expect(q('[data-screen="gameover"]')).toBeTruthy();
     expect(sawDraft).toBe(true); // on est bien passé par l'écran de draft
     expect(q('[data-new-game]')).toBeTruthy();
+  });
+});
+
+describe('pixel art (acceptation Phase 5)', () => {
+  it('la customisation du lobby produit exactement le même sprite en combat', () => {
+    setupLobby(['Alice', 'Bob']);
+    // On change la coiffure et la couleur de tenue d'Alice
+    const hairSel = q<HTMLSelectElement>('select[data-appearance="p1:hairStyle"]')!;
+    hairSel.value = hairSel.options[1]!.value;
+    hairSel.dispatchEvent(new Event('change', { bubbles: true }));
+    const lobbySprite = q<HTMLCanvasElement>('canvas[data-sprite]')!.dataset.sprite;
+    expect(lobbySprite).toBeTruthy();
+
+    click('[data-ready="p1"]');
+    click('[data-ready="p2"]');
+    click('[data-start-run]');
+    click('[data-enter-node]');
+    const combatSprite = q<HTMLCanvasElement>('[data-player="p1"] canvas[data-sprite]')!.dataset.sprite;
+    expect(combatSprite).toBe(lobbySprite); // fidèle, couche par couche
+  });
+
+  it('chaque type d’ennemi a son sprite', () => {
+    setupLobby(['Alice']);
+    click('[data-ready="p1"]');
+    click('[data-start-run]');
+    click('[data-enter-node]');
+    for (const enemyCard of qa('[data-enemy]')) {
+      expect(enemyCard.querySelector('canvas[data-enemy-sprite]')).toBeTruthy();
+    }
   });
 });
 

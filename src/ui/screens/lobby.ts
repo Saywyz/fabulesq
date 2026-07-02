@@ -3,6 +3,7 @@ import { CLASSES } from '../../engine/data/classes';
 import type { Appearance, GameState, Player } from '../../engine/types';
 import type { Ctx } from '../context';
 import { el } from '../dom';
+import { charSprite } from '../pixel/sprite';
 
 // Palettes cosmétiques placeholder (les vrais sprites arrivent en Phase 5).
 const PALETTES: Record<keyof Appearance, string[]> = {
@@ -27,16 +28,6 @@ function nextPlayerId(players: Player[]): string {
     return Number.isFinite(n) ? Math.max(m, n) : m;
   }, 0);
   return `p${max + 1}`;
-}
-
-export function avatarPreview(a: Appearance): HTMLElement {
-  return el(
-    'div',
-    { class: 'avatar', title: `${a.hairStyle} / ${a.outfitStyle}` },
-    el('div', { class: 'avatar-hair', style: `background:${a.hairColor}` }),
-    el('div', { class: 'avatar-skin', style: `background:${a.skinTone}` }),
-    el('div', { class: 'avatar-outfit', style: `background:${a.outfitColor}` }),
-  );
 }
 
 function appearanceSelect(p: Player, field: keyof Appearance, ctx: Ctx, disabled = false): HTMLElement {
@@ -71,7 +62,13 @@ function playerCard(p: Player, ctx: Ctx): HTMLElement {
   return el(
     'div',
     { class: `card player-card${p.ready ? ' ready' : ''}` },
-    el('div', { class: 'card-header' }, avatarPreview(p.appearance), el('strong', {}, p.name), mine && ctx.role !== 'hotseat' ? ' (vous)' : ''),
+    el(
+      'div',
+      { class: 'card-header lobby-preview' },
+      charSprite(p.appearance, 5), // le MÊME sprite qu'en combat : la customisation est fidèle
+      el('strong', {}, p.name),
+      mine && ctx.role !== 'hotseat' ? ' (vous)' : '',
+    ),
     el(
       'div',
       { class: 'customize' },

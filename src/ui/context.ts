@@ -1,9 +1,13 @@
 // Contexte passé aux écrans : dispatch d'Action vers la session + état éphémère d'UI.
 import type { Action, PlayerId, SkillId } from '../engine/types';
 
-/** État purement visuel (sélection en cours) — jamais dans GameState. */
+/** État purement visuel — jamais dans GameState. */
 export interface UiState {
   pendingSkill: Record<PlayerId, SkillId | undefined>;
+  /** Derniers PV vus par entité : sert aux nombres flottants et aux flashs de dégâts. */
+  lastHp: Record<string, number>;
+  /** Phase du rendu précédent : déclenche la transition d'écran. */
+  lastPhase?: string;
 }
 
 export interface Ctx {

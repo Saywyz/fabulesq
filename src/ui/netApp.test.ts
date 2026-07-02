@@ -11,6 +11,9 @@ import { mountSession } from './app';
 let hostRoot: HTMLElement;
 let guestRoot: HTMLElement;
 
+// jsdom n'implémente pas le canvas 2D : on neutralise pour éviter le bruit de logs.
+HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
+
 function q<T extends HTMLElement = HTMLElement>(root: HTMLElement, sel: string): T | null {
   return root.querySelector<T>(sel);
 }
