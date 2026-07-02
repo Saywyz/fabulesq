@@ -17,6 +17,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Repository secrets (ou, à défaut, Repository variables).
+      # Absentes, le build passe quand même : le mode en ligne est simplement désactivé.
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,17 +32,12 @@ jobs:
       - run: npm run test
       # Étapes-témoins : laquelle s'exécute indique si les clés sont visibles du job.
       - name: cles-supabase-presentes
-        if: ${{ (secrets.VITE_SUPABASE_URL != '' || vars.VITE_SUPABASE_URL != '') && (secrets.VITE_SUPABASE_ANON_KEY != '' || vars.VITE_SUPABASE_ANON_KEY != '') }}
+        if: ${{ env.VITE_SUPABASE_URL != '' && env.VITE_SUPABASE_ANON_KEY != '' }}
         run: echo "Clés Supabase disponibles pour le build."
       - name: cles-supabase-manquantes
-        if: ${{ (secrets.VITE_SUPABASE_URL == '' && vars.VITE_SUPABASE_URL == '') || (secrets.VITE_SUPABASE_ANON_KEY == '' && vars.VITE_SUPABASE_ANON_KEY == '') }}
+        if: ${{ env.VITE_SUPABASE_URL == '' || env.VITE_SUPABASE_ANON_KEY == '' }}
         run: echo "::warning::Clés Supabase absentes - ajoutez-les dans Settings > Secrets and variables > Actions > onglet Secrets (Repository secrets), noms VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY."
       - run: npm run build
-        env:
-          # Repository secrets (ou, à défaut, Repository variables).
-          # Absentes, le build passe quand même : le mode en ligne est simplement désactivé.
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
