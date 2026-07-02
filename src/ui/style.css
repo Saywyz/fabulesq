@@ -1,0 +1,185 @@
+/* Fabulesq — habillage minimal Phase 2 (placeholders, le pixel art arrive en Phase 5). */
+:root {
+  --bg: #1a1423;
+  --panel: #241b2f;
+  --card: #2d2240;
+  --border: #4a3a63;
+  --text: #efe6d5;
+  --muted: #9c8fb0;
+  --accent: #e0a63c;
+  --danger: #c0392b;
+  --ok: #2f9e44;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.4;
+}
+#app { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+h1, h2 { color: var(--accent); margin: 8px 0; }
+.muted { color: var(--muted); font-size: 0.85em; }
+.code { letter-spacing: 3px; color: var(--accent); font-size: 1.2em; }
+
+.screen { display: flex; flex-direction: column; gap: 14px; }
+
+.btn {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 0.95em;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: #4a3a1f; border-color: var(--accent); }
+.btn-big { font-size: 1.15em; padding: 12px 22px; align-self: center; }
+.btn.ready { border-color: var(--ok); color: var(--ok); }
+.btn-target { border-color: var(--danger); }
+
+.cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  min-width: 220px;
+  flex: 1 1 220px;
+  max-width: 340px;
+}
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.player-card.ready { border-color: var(--ok); }
+.player-card.downed, .enemy-card.dead { opacity: 0.55; filter: grayscale(0.7); }
+
+.add-player { display: flex; gap: 8px; }
+.add-player input {
+  flex: 1;
+  max-width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 12px;
+}
+
+.customize { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.field { display: flex; flex-direction: column; font-size: 0.75em; color: var(--muted); gap: 2px; }
+.field select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+/* Avatar placeholder : 3 couches (cheveux / peau / tenue) en attendant les sprites. */
+.avatar { width: 28px; display: flex; flex-direction: column; image-rendering: pixelated; }
+.avatar-hair { height: 8px; border-radius: 4px 4px 0 0; }
+.avatar-skin { height: 10px; }
+.avatar-outfit { height: 14px; border-radius: 0 0 3px 3px; }
+
+.hp-bar {
+  position: relative;
+  height: 18px;
+  background: #140f1c;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.hp-fill { height: 100%; background: linear-gradient(90deg, #a4262c, #e05d3a); transition: width 0.3s; }
+.hp-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75em;
+  text-shadow: 0 1px 2px #000;
+}
+
+.statuses { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; min-height: 10px; }
+.chip {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1px 8px;
+  font-size: 0.78em;
+}
+.intent {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #3a2430;
+  border: 1px dashed var(--danger);
+  border-radius: 8px;
+  font-size: 0.88em;
+}
+.meta { display: flex; gap: 10px; margin-top: 6px; font-size: 0.85em; }
+.build { margin-top: 6px; font-size: 0.82em; }
+
+.panels { display: flex; flex-direction: column; gap: 10px; }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+.panel.confirmed { opacity: 0.7; }
+.skills-row, .targets-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+.planned { margin-top: 8px; color: var(--accent); }
+
+.skill-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  min-width: 120px;
+}
+.skill-card:hover:not(:disabled) { border-color: var(--accent); }
+.skill-card:disabled { opacity: 0.45; cursor: not-allowed; }
+.skill-card.selected { outline: 2px solid var(--accent); }
+.skill-card.rarity-rare { border-color: #4d7cc9; }
+.skill-card.rarity-legendary { border-color: var(--accent); }
+.skill-name { font-weight: 600; }
+.skill-cost { color: var(--accent); font-size: 0.8em; }
+.skill-tags { color: var(--muted); font-size: 0.72em; }
+
+.log {
+  background: #120d18;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 0.85em;
+}
+.log-line { padding: 1px 0; border-bottom: 1px dotted #2a2138; }
+
+.map-nodes { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.map-node {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4em;
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+}
+.map-node.current { border-color: var(--accent); box-shadow: 0 0 12px #e0a63c55; }
+.map-node.cleared { opacity: 0.5; }
+.node-label { font-size: 0.5em; color: var(--accent); }
+.party-strip { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
