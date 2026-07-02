@@ -25,6 +25,11 @@ function draftPanel(p: Player, state: GameState, ctx: Ctx): HTMLElement {
     panel.append(el('p', { class: 'muted' }, 'Plus rien à apprendre !'));
     return panel;
   }
+  const mine = ctx.canControl(p.id);
+  if (!mine) {
+    panel.append(el('p', { class: 'muted' }, '… choisit sa compétence'));
+    return panel;
+  }
 
   const row = el('div', { class: 'skills-row' });
   for (const skillId of offers) {

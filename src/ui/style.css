@@ -166,6 +166,18 @@ h1, h2 { color: var(--accent); margin: 8px 0; }
 }
 .log-line { padding: 1px 0; border-bottom: 1px dotted #2a2138; }
 
+.error { color: #ff8a80; }
+.home-card { max-width: 520px; }
+.home-online { display: flex; flex-direction: column; gap: 10px; }
+.home-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.home-actions input, .home-online input {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 12px;
+}
+
 .map-nodes { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .map-node {
   width: 56px;

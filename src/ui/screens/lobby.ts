@@ -39,8 +39,8 @@ export function avatarPreview(a: Appearance): HTMLElement {
   );
 }
 
-function appearanceSelect(p: Player, field: keyof Appearance, ctx: Ctx): HTMLElement {
-  const select = el('select', { [`data-appearance`]: `${p.id}:${field}` });
+function appearanceSelect(p: Player, field: keyof Appearance, ctx: Ctx, disabled = false): HTMLElement {
+  const select = el('select', { 'data-appearance': `${p.id}:${field}`, disabled });
   for (const value of PALETTES[field]) {
     const opt = el('option', { value }, value);
     if (p.appearance[field] === value) opt.selected = true;
@@ -57,7 +57,8 @@ function appearanceSelect(p: Player, field: keyof Appearance, ctx: Ctx): HTMLEle
 }
 
 function playerCard(p: Player, ctx: Ctx): HTMLElement {
-  const classSelect = el('select', { 'data-class': p.id });
+  const mine = ctx.canControl(p.id);
+  const classSelect = el('select', { 'data-class': p.id, disabled: !mine });
   for (const cls of Object.values(CLASSES)) {
     const opt = el('option', { value: cls.id }, cls.name);
     if (p.classId === cls.id) opt.selected = true;
@@ -70,11 +71,11 @@ function playerCard(p: Player, ctx: Ctx): HTMLElement {
   return el(
     'div',
     { class: `card player-card${p.ready ? ' ready' : ''}` },
-    el('div', { class: 'card-header' }, avatarPreview(p.appearance), el('strong', {}, p.name)),
+    el('div', { class: 'card-header' }, avatarPreview(p.appearance), el('strong', {}, p.name), mine && ctx.role !== 'hotseat' ? ' (vous)' : ''),
     el(
       'div',
       { class: 'customize' },
-      ...(Object.keys(PALETTES) as (keyof Appearance)[]).map((f) => appearanceSelect(p, f, ctx)),
+      ...(Object.keys(PALETTES) as (keyof Appearance)[]).map((f) => appearanceSelect(p, f, ctx, !mine)),
       el('label', { class: 'field' }, 'Classe', classSelect),
     ),
     el('p', { class: 'muted' }, CLASSES[p.classId]?.description ?? ''),
@@ -83,6 +84,7 @@ function playerCard(p: Player, ctx: Ctx): HTMLElement {
       {
         class: p.ready ? 'btn ready' : 'btn',
         'data-ready': p.id,
+        disabled: !mine,
         onclick: () => ctx.dispatch({ t: 'set_ready', playerId: p.id, ready: !p.ready }),
       },
       p.ready ? '✔ Prêt !' : 'Pas prêt',
@@ -107,29 +109,48 @@ export function lobbyScreen(state: GameState, ctx: Ctx): HTMLElement {
   });
 
   const allReady = state.players.length > 0 && state.players.every((p) => p.ready);
+  const isGuest = ctx.role === 'guest';
+  const presence = ctx.getPresence();
 
   return el(
     'div',
     { class: 'screen', 'data-screen': 'lobby' },
     el('h1', {}, 'Fabulesq'),
-    el('p', { class: 'muted' }, 'Roguelike coopératif — mode hot-seat (une machine pilote tout le monde).'),
-    el('p', {}, 'Code de la partie : ', el('strong', { class: 'code' }, state.code)),
     el(
-      'div',
-      { class: 'add-player' },
-      nameInput,
-      el('button', { class: 'btn', 'data-add-player': '', onclick: addPlayer }, '+ Ajouter un joueur'),
+      'p',
+      { class: 'muted' },
+      ctx.role === 'hotseat'
+        ? 'Roguelike coopératif — mode hot-seat (une machine pilote tout le monde).'
+        : 'Partagez le code pour que vos amis rejoignent la partie.',
     ),
+    el('p', {}, 'Code de la partie : ', el('strong', { class: 'code' }, state.code)),
+    presence.length > 0
+      ? el('p', { class: 'muted', 'data-presence': '' }, `🟢 En ligne : ${presence.join(', ')}`)
+      : '',
+    ctx.role === 'hotseat'
+      ? el(
+          'div',
+          { class: 'add-player' },
+          nameInput,
+          el('button', { class: 'btn', 'data-add-player': '', onclick: addPlayer }, '+ Ajouter un joueur'),
+        )
+      : '',
     el('div', { class: 'cards' }, ...state.players.map((p) => playerCard(p, ctx))),
     el(
       'button',
       {
         class: 'btn btn-primary btn-big',
         'data-start-run': '',
-        disabled: !allReady,
+        disabled: !allReady || isGuest,
         onclick: () => ctx.dispatch({ t: 'start_run' }),
       },
-      state.players.length === 0 ? 'Ajoutez au moins un joueur' : allReady ? '⚔ Lancer l’aventure !' : 'En attente que tout le monde soit prêt…',
+      state.players.length === 0
+        ? 'Ajoutez au moins un joueur'
+        : isGuest
+          ? 'L’hôte lancera la partie…'
+          : allReady
+            ? '⚔ Lancer l’aventure !'
+            : 'En attente que tout le monde soit prêt…',
     ),
   );
 }

@@ -128,7 +128,8 @@ function planningPanel(p: Player, state: GameState, ctx: Ctx): HTMLElement {
 
 export function combatScreen(state: GameState, ctx: Ctx): HTMLElement {
   const combat = state.combat!;
-  const standing = state.players.filter((p) => p.alive && !p.downed);
+  // En ligne, on ne planifie que pour son propre joueur ; en hot-seat, pour tous.
+  const standing = state.players.filter((p) => p.alive && !p.downed && ctx.canControl(p.id));
 
   const logBox = el(
     'div',

@@ -1,37 +1,82 @@
-// Montage de l'application hot-seat : store minimal autour du reducer pur.
-// state = reduce(state, action) puis re-rendu complet — simple et suffisant en tour par tour.
+// Montage de l'application autour d'une GameSession (hot-seat, hôte ou invité).
+// L'UI ne connaît que la session : elle lit l'état et émet des Action.
 import { createInitialState, reduce } from '../engine/reducer';
+import type { GameSession } from '../net/session';
 import type { PlayerId, SkillId } from '../engine/types';
 import type { Ctx, UiState } from './context';
+import { el } from './dom';
 import { render } from './render';
 
-export interface MountOptions {
+export interface HotseatOptions {
   seed: number;
   code: string;
 }
 
-export function mountApp(root: HTMLElement, opts: MountOptions): void {
+/** Session locale : le reducer tourne sur place, tous les joueurs sont pilotables. */
+export function createHotseatSession(opts: HotseatOptions): GameSession {
   let state = createInitialState({ seed: opts.seed, hostId: 'p1', code: opts.code });
+  const listeners = new Set<() => void>();
+  return {
+    role: 'hotseat',
+    getState: () => state,
+    dispatch(action) {
+      const next = reduce(state, action);
+      if (next === state) return;
+      state = next;
+      listeners.forEach((cb) => cb());
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    canControl: () => true,
+    getPresence: () => [],
+    leave() {},
+  };
+}
+
+export function mountSession(root: HTMLElement, session: GameSession): void {
   const ui: UiState = { pendingSkill: {} };
 
   const ctx: Ctx = {
     ui,
-    dispatch(action) {
-      const next = reduce(state, action);
-      if (next !== state) {
-        state = next;
-        ui.pendingSkill = {}; // toute action appliquée invalide la sélection en cours
-      }
-      rerender();
-    },
+    role: session.role,
+    dispatch: (action) => session.dispatch(action),
     select(playerId: PlayerId, skillId: SkillId | null) {
       ui.pendingSkill = { ...ui.pendingSkill, [playerId]: skillId ?? undefined };
       rerender();
     },
+    canControl: (playerId) => session.canControl(playerId),
+    getPresence: () => session.getPresence(),
   };
 
-  function rerender(): void {
-    root.replaceChildren(render(state, ctx));
+  /** Une sélection devient obsolète dès que l'action est planifiée ou que la phase change. */
+  function cleanPendingSelections(): void {
+    const state = session.getState();
+    for (const pid of Object.keys(ui.pendingSkill)) {
+      if (!state || state.phase !== 'combat_planning' || state.combat?.planned[pid]) {
+        delete ui.pendingSkill[pid];
+      }
+    }
   }
+
+  function rerender(): void {
+    const state = session.getState();
+    root.replaceChildren(
+      state
+        ? render(state, ctx)
+        : el('div', { class: 'screen' }, el('h1', {}, 'Connexion à la partie…')),
+    );
+  }
+
+  session.subscribe(() => {
+    cleanPendingSelections();
+    rerender();
+  });
   rerender();
+}
+
+/** Point d'entrée hot-seat (conservé pour les tests et le mode local). */
+export function mountApp(root: HTMLElement, opts: HotseatOptions): void {
+  mountSession(root, createHotseatSession(opts));
 }
