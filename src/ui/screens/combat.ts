@@ -2,6 +2,7 @@
 // séquentielle (un joueur actif à la fois), nombres flottants, flashs de dégâts.
 // L'UI lit l'état et émet des Action — zéro règle calculée ici.
 import { BIOMES } from '../../engine/data/biomes';
+import { ENEMIES } from '../../engine/data/enemies';
 import { SKILLS } from '../../engine/data/skills';
 import type { Enemy, GameState, Player, Skill } from '../../engine/types';
 import { energyDots, hpBar } from '../components/bars';
@@ -47,7 +48,7 @@ function enemyCard(
       'data-enemy': e.id,
       ...(targetable ? { 'data-target': `${target.activeId}:${e.id}`, onclick: () => target.onTarget(e.id) } : {}),
     },
-    el('div', { class: 'sprite-box' }, enemySprite(e.enemyType, e.enemyType === 'ogre_boss' ? 5 : 4), float ?? ''),
+    el('div', { class: 'sprite-box' }, enemySprite(e.enemyType, ENEMIES[e.enemyType]?.isBoss ? 5 : 4), float ?? ''),
     el('strong', { class: 'entity-name' }, e.name, e.alive ? '' : ' 💀'),
     hpBar(e.hp, e.maxHp),
     statusChips(e),

@@ -33,8 +33,14 @@ export function spawnEnemy(
   };
 }
 
-/** Construit la vague d'un nœud depuis la table de rencontres de SON biome,
- *  par rotation déterministe sur l'index du nœud ; élite renforcé. */
+/** Palier de difficulté d'une table à paliers, selon la progression p ∈ [0,1]. */
+export function tierFor<T>(tiers: T[], progress: number): T {
+  return tiers[Math.min(Math.floor(progress * tiers.length), tiers.length - 1)]!;
+}
+
+/** Construit la vague d'un nœud depuis la table de rencontres de SON biome :
+ *  palier choisi par la progression, rotation déterministe sur l'index du nœud dans
+ *  le palier ; élite renforcé. */
 export function buildEnemies(node: MapNode, playerCount: number, progress: number): Enemy[] {
   const encounters = BIOMES[node.biome]!.encounters;
   const wave =
@@ -42,7 +48,10 @@ export function buildEnemies(node: MapNode, playerCount: number, progress: numbe
       ? encounters.boss
       : node.type === 'elite'
         ? encounters.elite[node.index % encounters.elite.length]!
-        : encounters.combat[node.index % encounters.combat.length]!;
+        : (() => {
+            const tier = tierFor(encounters.combat, progress);
+            return tier[node.index % tier.length]!;
+          })();
   const hpMult = node.type === 'elite' ? BALANCE.eliteHpMult : 1;
 
   return wave.map((enemyType, i) => {

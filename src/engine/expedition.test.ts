@@ -96,7 +96,7 @@ describe('progression normalisée (pacing)', () => {
   });
 
   it('le pacing durcit PV et dégâts ennemis avec la progression', () => {
-    expect(scaledEnemyHp(10, 2, 0)).toBe(20); // départ : pas de bonus
+    expect(scaledEnemyHp(10, 2, 0)).toBe(Math.round(20 * BALANCE.enemyHpPerPlayer)); // départ : pas de bonus de pacing
     expect(scaledEnemyHp(10, 2, 1)).toBeGreaterThan(scaledEnemyHp(10, 2, 0.5));
     expect(scaledEnemyHp(10, 2, 0.5)).toBeGreaterThan(scaledEnemyHp(10, 2, 0));
     expect(scaledEnemyDamage(10, 0)).toBe(10);

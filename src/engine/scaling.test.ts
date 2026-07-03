@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { BALANCE } from './data/balance';
 import { bossActionsPerTurn, scaledEnemyDamage, scaledEnemyHp } from './scaling';
 
 describe('scaling par nombre de joueurs et pacing (GAME_DESIGN §7, BUILD_PLAN_V2 §A.4)', () => {
   it('les PV ennemis scalent linéairement avec N joueurs (au départ, p = 0)', () => {
-    expect(scaledEnemyHp(10, 1, 0)).toBe(10);
-    expect(scaledEnemyHp(10, 2, 0)).toBe(20);
-    expect(scaledEnemyHp(10, 4, 0)).toBe(40);
+    const coef = BALANCE.enemyHpPerPlayer;
+    expect(scaledEnemyHp(10, 1, 0)).toBe(Math.round(10 * coef));
+    expect(scaledEnemyHp(10, 2, 0)).toBe(Math.round(20 * coef));
+    expect(scaledEnemyHp(10, 4, 0)).toBe(Math.round(40 * coef));
+    expect(scaledEnemyHp(10, 4, 0)).toBe(scaledEnemyHp(10, 2, 0) * 2); // linéarité
   });
 
   it('le boss gagne des actions par tour : ⌈N/3⌉', () => {

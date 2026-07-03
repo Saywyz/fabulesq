@@ -3,6 +3,8 @@
 // élites renforcées, scaling du boss.
 import { describe, expect, it } from 'vitest';
 import { getStacks } from './combat/status';
+import { BALANCE } from './data/balance';
+import { ENEMIES } from './data/enemies';
 import { EVENTS } from './data/events';
 import { SKILL_POOL, SKILLS } from './data/skills';
 import { createInitialState, reduce } from './reducer';
@@ -238,19 +240,19 @@ describe('invocateur et soigneur', () => {
       maxHp: 24,
       intent:
         enemyIntent === 'summon'
-          ? { kind: 'summon' as const, description: 'invoque une gelée' }
+          ? { kind: 'summon' as const, description: 'invoque un diablotin' }
           : { kind: 'heal' as const, value: 6, targetId: 'e2', description: 'soigne son allié' },
     };
     s = { ...s, combat: { ...s.combat!, enemies: [special, goblin] } };
     return giveSkills(s, { p1: ['defend'], p2: ['defend'] });
   }
 
-  it('le cultiste invoque une gelée : un ennemi de plus sur le plateau', () => {
+  it('le cultiste invoque un diablotin (invocation dans son biome) : un ennemi de plus', () => {
     let s = craftCombatWithEnemy('summon');
     expect(s.combat!.enemies).toHaveLength(2);
     s = playRound(s, () => ({ skillId: 'defend' }));
     expect(s.combat!.enemies.length).toBe(3);
-    expect(s.combat!.enemies.some((e) => e.enemyType === 'slime')).toBe(true);
+    expect(s.combat!.enemies.some((e) => e.enemyType === 'imp')).toBe(true);
   });
 
   it('le chamane soigne son allié blessé', () => {
@@ -282,13 +284,14 @@ describe('nœuds hors combat', () => {
     expect(changed || noOpPossible).toBe(true);
   });
 
-  it('au repos, chacun choisit : soigner (+40 % PV max) ou oublier une compétence', () => {
+  it('au repos, chacun choisit : soigner (+restHealPct % PV max) ou oublier une compétence', () => {
     let s = jumpTo(forceNodeType(setup(2, 8), 1, 'rest'), 1);
     s = { ...s, players: s.players.map((p) => ({ ...p, hp: 10 })) };
     s = enterCurrent(s);
     expect(s.phase).toBe('node_rest');
     s = reduce(s, { t: 'rest_choice', playerId: 'p1', choice: 'heal' });
-    expect(s.players.find((p) => p.id === 'p1')!.hp).toBe(10 + 12); // 40 % de 30
+    const healed = Math.floor((30 * BALANCE.restHealPct) / 100);
+    expect(s.players.find((p) => p.id === 'p1')!.hp).toBe(10 + healed);
     expect(s.phase).toBe('node_rest'); // p2 n'a pas choisi
     s = reduce(s, { t: 'rest_choice', playerId: 'p2', choice: 'forget', skillId: 'taunt_shout' });
     expect(s.players.find((p) => p.id === 'p2')!.skills).not.toContain('taunt_shout');
@@ -303,7 +306,8 @@ describe('scaling du boss (GAME_DESIGN §7)', () => {
     let s = setup(n, 77);
     s = jumpTo(s, s.run.nodes.length - 1);
     s = enterCurrent(s);
-    expect(s.combat!.enemies[0]!.enemyType).toBe('ogre_boss');
+    const boss = s.combat!.enemies[0]!;
+    expect(ENEMIES[boss.enemyType]!.isBoss).toBe(true);
     // Intention forcée : attaque télégraphiée sur p1
     s = {
       ...s,
@@ -317,10 +321,10 @@ describe('scaling du boss (GAME_DESIGN §7)', () => {
     };
     s = giveSkills(s, Object.fromEntries(s.players.map((p) => [p.id, ['defend'] as SkillId[]])));
     s = playRound(s, () => ({ skillId: 'defend' }));
-    return s.combat!.log.filter((l) => l.includes('Ogre') && l.includes('attaque'));
+    return s.combat!.log.filter((l) => l.includes(boss.name) && l.includes('attaque'));
   }
 
-  it("l'ogre frappe une fois à 2 joueurs, deux fois à 6 (⌈N/3⌉ actions)", () => {
+  it("le boss frappe une fois à 2 joueurs, deux fois à 6 (⌈N/3⌉ actions)", () => {
     expect(bossRound(2)).toHaveLength(1);
     expect(bossRound(6)).toHaveLength(2);
   });

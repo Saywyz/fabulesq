@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState, reduce } from './reducer';
 import { getStacks } from './combat/status';
 import { BALANCE } from './data/balance';
+import { ENEMIES } from './data/enemies';
 import type { GameState, LengthBand, Player, SkillId } from './types';
 
 // ————— Helpers de scénario (bot déterministe, aucun aléa hors du PRNG de l'état) —————
@@ -339,7 +340,7 @@ describe('fins de combat (Phase 7)', () => {
   it('boss final vaincu ⇒ phase victory', () => {
     let s = setup(2, 21);
     s = enterCombat(jumpTo(s, s.run.nodes.length - 1));
-    expect(s.combat!.enemies.some((e) => e.enemyType === 'ogre_boss')).toBe(true);
+    expect(s.combat!.enemies.some((e) => ENEMIES[e.enemyType]?.isBoss)).toBe(true);
     // On abrège l'exécution : le boss est à 1 PV, la première frappe le tue.
     s = { ...s, combat: { ...s.combat!, enemies: s.combat!.enemies.map((e) => ({ ...e, hp: 1 })) } };
     s = playRound(s, () => ({ skillId: 'strike', targetId: firstAliveEnemyId(s) }));
