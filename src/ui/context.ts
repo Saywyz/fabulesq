@@ -1,5 +1,11 @@
 // Contexte passé aux écrans : dispatch d'Action vers la session + état éphémère d'UI.
-import type { Action, PlayerId, SkillId } from '../engine/types';
+import type { Action, GameState, PlayerId, SkillId } from '../engine/types';
+
+/** Couche canvas persistante de la scène de combat (Phase 9, animée en Phase 10). */
+export interface SceneHandle {
+  canvas: HTMLCanvasElement;
+  draw(state: GameState): void;
+}
 
 /** État purement visuel — jamais dans GameState. */
 export interface UiState {
@@ -8,6 +14,8 @@ export interface UiState {
   lastHp: Record<string, number>;
   /** Phase du rendu précédent : déclenche la transition d'écran. */
   lastPhase?: string;
+  /** Canvas de scène réutilisé à travers les re-renders (jamais dans GameState). */
+  scene?: SceneHandle;
 }
 
 export interface Ctx {

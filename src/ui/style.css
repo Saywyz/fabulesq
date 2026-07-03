@@ -90,31 +90,9 @@ h1 { text-shadow: 0 2px 0 #00000066; }
 .player-card.ready { border-color: var(--ok); }
 .player-card.downed, .enemy-card.dead { opacity: 0.5; filter: grayscale(0.8); }
 
-/* Cartes-entités du combat (cliquables pour cibler) */
-.entity-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  text-align: center;
-  color: var(--text);
-  font: inherit;
-  position: relative;
-  min-width: 150px;
-  max-width: 210px;
-}
-button.entity-card { cursor: pointer; }
-.entity-card.targetable {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 2px #d1493a55, 0 3px 0 #00000055;
-  animation: target-pulse 0.9s ease-in-out infinite;
-}
-.player-card.targetable { border-color: var(--heal); box-shadow: 0 0 0 2px #6fe08a44, 0 3px 0 #00000055; }
 @keyframes target-pulse {
   50% { transform: translateY(-3px); }
 }
-.entity-name { font-size: 0.95em; }
-.sprite-box { position: relative; padding: 4px; }
 
 /* Dégâts / soins : flash + nombre flottant */
 .was-hit { animation: hit-shake 0.45s; }
@@ -212,16 +190,59 @@ button.entity-card { cursor: pointer; }
   from { opacity: 0; transform: scale(0.85); }
 }
 
-/* ————— Combat : layout ————— */
+/* ————— Combat : scène spatiale (Phase 9) ————— */
 .combat-header { display: flex; align-items: baseline; gap: 12px; }
-.battlefield {
-  background: linear-gradient(180deg, #1f1730, #191227);
-  border: 1px solid #ffffff0d;
-  border-radius: 14px;
-  padding: 14px;
+.scene-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 960px;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
 }
-.cards.enemies { justify-content: center; }
-.cards.players { justify-content: center; }
+.scene-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+  border: 1px solid #ffffff14;
+  box-shadow: 0 4px 0 #00000055;
+}
+/* Plaques : overlays DOM au-dessus du canvas — elles portent le contrat data-*. */
+.plate {
+  position: absolute;
+  width: 106px;
+  margin-left: -53px;
+  margin-top: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  background: #14101dcc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 5px;
+  font-size: 0.72em;
+  text-align: center;
+  color: var(--text);
+  z-index: 2;
+  gap: 1px;
+}
+button.plate { cursor: pointer; font: inherit; font-size: 0.72em; }
+.plate-name { text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plate .hp-bar { height: 10px; }
+.plate .statuses { min-height: 0; }
+.plate .intent { font-size: 0.92em; padding: 2px 5px; }
+.plate-build { font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plate.dead { opacity: 0.55; filter: grayscale(0.8); }
+.plate.downed { opacity: 0.8; }
+.plate.targetable {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px #d1493a55;
+  animation: target-pulse 0.9s ease-in-out infinite;
+  z-index: 3;
+}
+.player-plate.targetable { border-color: var(--heal); box-shadow: 0 0 0 2px #6fe08a44; }
 
 .panel {
   background: var(--panel);

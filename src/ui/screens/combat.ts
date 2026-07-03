@@ -1,15 +1,18 @@
-// Plateau de combat — Phase 5 : sprites, ciblage en cliquant les cartes, planification
-// séquentielle (un joueur actif à la fois), nombres flottants, flashs de dégâts.
+// Scène de combat spatiale — Phase 9 : décor de biome + sprites sur UN canvas persistant,
+// overlays DOM (« plaques ») positionnés au-dessus pour les infos et le ciblage.
+// Les plaques portent tout le contrat data-* (data-enemy, data-player, data-target, …).
 // L'UI lit l'état et émet des Action — zéro règle calculée ici.
 import { BIOMES } from '../../engine/data/biomes';
 import { ENEMIES } from '../../engine/data/enemies';
 import { SKILLS } from '../../engine/data/skills';
 import type { Enemy, GameState, Player, Skill } from '../../engine/types';
-import { energyDots, hpBar } from '../components/bars';
+import { hpBar } from '../components/bars';
 import { statusChips } from '../components/statuses';
 import type { Ctx } from '../context';
 import { el } from '../dom';
-import { charSprite, enemySprite } from '../pixel/sprite';
+import { spriteSignature } from '../pixel/sprite';
+import { layoutEnemies, layoutTeam, toPct, type Anchor } from '../scene/layout';
+import { getScene } from '../scene/scene';
 
 interface Fx {
   float: HTMLElement | null;
@@ -34,56 +37,62 @@ function makeFx(ctx: Ctx): (id: string, hp: number) => Fx {
   };
 }
 
-function enemyCard(
-  e: Enemy,
-  fx: (id: string, hp: number) => Fx,
-  target: { activeId: string; onTarget: (id: string) => void } | null,
-): HTMLElement {
+type TargetCtl = { activeId: string; onTarget: (id: string) => void } | null;
+
+/** Plaque d'ennemi : nom, PV, statuts, intention — bouton quand ciblable. */
+function enemyPlate(e: Enemy, anchor: Anchor, fx: (id: string, hp: number) => Fx, target: TargetCtl): HTMLElement {
   const { float, cls } = fx(e.id, e.hp);
   const targetable = target !== null && e.alive;
-  const card = el(
+  const pos = toPct(anchor);
+  return el(
     targetable ? 'button' : 'div',
     {
-      class: `card entity-card enemy-card${e.alive ? '' : ' dead'}${targetable ? ' targetable' : ''}${cls}`,
+      class: `plate enemy-plate${e.alive ? '' : ' dead'}${targetable ? ' targetable' : ''}${cls}`,
+      style: `left:${pos.left};top:${pos.top}`,
       'data-enemy': e.id,
       ...(targetable ? { 'data-target': `${target.activeId}:${e.id}`, onclick: () => target.onTarget(e.id) } : {}),
     },
-    el('div', { class: 'sprite-box' }, enemySprite(e.enemyType, ENEMIES[e.enemyType]?.isBoss ? 5 : 4), float ?? ''),
-    el('strong', { class: 'entity-name' }, e.name, e.alive ? '' : ' 💀'),
+    float ?? '',
+    el('strong', { class: 'plate-name' }, e.name, e.alive ? '' : ' 💀'),
     hpBar(e.hp, e.maxHp),
     statusChips(e),
     e.alive && e.intent
       ? el('div', { class: 'intent', 'data-intent': '' }, `📣 ${e.intent.description}`)
       : '',
   );
-  return card;
 }
 
-function playerCard(
+/** Plaque de joueur : nom, PV, énergie/menace, statuts, kit — bouton quand ciblable. */
+function playerPlate(
   p: Player,
+  anchor: Anchor,
   state: GameState,
   fx: (id: string, hp: number) => Fx,
-  target: { activeId: string; onTarget: (id: string) => void } | null,
+  target: TargetCtl,
 ): HTMLElement {
   const planned = state.combat?.planned[p.id];
   const { float, cls } = fx(p.id, p.hp);
   const targetable = target !== null; // les alliés à terre restent ciblables (revive)
+  const pos = toPct(anchor);
+  const kit = p.skills.map((id) => SKILLS[id]?.name ?? id).join(' · ');
   return el(
     targetable ? 'button' : 'div',
     {
-      class: `card entity-card player-card${p.downed ? ' downed' : ''}${targetable ? ' targetable' : ''}${cls}`,
+      class: `plate player-plate${p.downed ? ' downed' : ''}${targetable ? ' targetable' : ''}${cls}`,
+      style: `left:${pos.left};top:${pos.top}`,
       'data-player': p.id,
+      'data-sprite': spriteSignature(p.appearance), // fidélité customisation ↔ scène (testée)
+      title: `⚡ ${p.energy}/${p.maxEnergy} · 😡 menace ${p.threat}`,
       ...(targetable ? { 'data-target': `${target.activeId}:${p.id}`, onclick: () => target.onTarget(p.id) } : {}),
     },
-    el('div', { class: 'sprite-box' }, charSprite(p.appearance, 3), float ?? ''),
-    el('strong', { class: 'entity-name' }, p.name, p.downed ? ' 🪦' : planned?.confirmed ? ' ✔' : ''),
+    float ?? '',
+    el('strong', { class: 'plate-name' }, p.name, p.downed ? ' 🪦' : planned?.confirmed ? ' ✔' : ''),
     hpBar(p.hp, p.maxHp),
-    el('div', { class: 'meta' }, energyDots(p.energy, p.maxEnergy), el('span', { title: 'menace' }, `😡${p.threat}`)),
     statusChips(p),
     el(
       'div',
-      { class: 'build', 'data-build': p.id, title: 'Build visible de tous — coordonnez-vous !' },
-      p.skills.map((id) => SKILLS[id]?.name ?? id).join(' · '),
+      { class: 'build plate-build', 'data-build': p.id, title: `Kit visible de tous — coordonnez-vous ! ${kit}` },
+      kit,
     ),
   );
 }
@@ -188,14 +197,29 @@ export function combatScreen(state: GameState, ctx: Ctx): HTMLElement {
       ctx.dispatch({ t: 'plan_action', playerId: active.id, skillId: pendingId, targetId });
     }
   };
-  const enemyTarget =
+  const enemyTarget: TargetCtl =
     active && pendingSkill?.targeting === 'enemy' ? { activeId: active.id, onTarget: plan } : null;
-  const allyTarget =
+  const allyTarget: TargetCtl =
     active && pendingSkill?.targeting === 'ally' ? { activeId: active.id, onTarget: plan } : null;
 
   const node = state.run.nodes[state.run.currentNode];
   const nodeLabel = node?.type === 'boss' ? '👹 BOSS FINAL' : node?.type === 'elite' ? '🗡️ Élite' : '⚔️ Combat';
   const biomeName = node ? (BIOMES[node.biome]?.name ?? node.biome) : '';
+
+  // ——— Scène : canvas persistant + plaques positionnées ———
+  const scene = getScene(ctx.ui);
+  const teamAnchors = layoutTeam(state.players.map((p) => p.id));
+  const enemyAnchors = layoutEnemies(
+    combat.enemies.map((e) => ({ id: e.id, isBoss: ENEMIES[e.enemyType]?.isBoss ?? false })),
+  );
+  const sceneWrap = el(
+    'div',
+    { class: 'scene-wrap' },
+    scene.canvas,
+    ...combat.enemies.map((e, i) => enemyPlate(e, enemyAnchors[i]!, fx, enemyTarget)),
+    ...state.players.map((p, i) => playerPlate(p, teamAnchors[i]!, state, fx, allyTarget)),
+  );
+  scene.draw(state);
 
   const logBox = el(
     'div',
@@ -210,10 +234,9 @@ export function combatScreen(state: GameState, ctx: Ctx): HTMLElement {
 
   return el(
     'div',
-    { class: 'screen combat-screen' , 'data-screen': 'combat' },
+    { class: 'screen combat-screen', 'data-screen': 'combat' },
     el('div', { class: 'combat-header' }, el('h2', {}, `${nodeLabel} — round ${combat.round}`), el('span', { class: 'muted' }, `Nœud ${state.run.currentNode + 1}/${state.run.nodes.length} · ${biomeName}`)),
-    el('div', { class: 'battlefield' }, el('div', { class: 'cards enemies' }, ...combat.enemies.map((e) => enemyCard(e, fx, enemyTarget)))),
-    el('div', { class: 'cards players' }, ...state.players.map((p) => playerCard(p, state, fx, allyTarget))),
+    sceneWrap,
     active
       ? planningBar(active, state, ctx)
       : state.phase === 'combat_planning' && controllable.length > 0

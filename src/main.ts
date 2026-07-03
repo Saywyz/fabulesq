@@ -44,7 +44,9 @@ function showHome(error?: string): void {
       error,
 
       onLocal() {
-        mountSession(root, createHotseatSession({ seed: generateSeed(), code: generateCode() }));
+        // Seed rejouable en local via l'URL (?seed=123 ou ?seed=texte) — même règle que le champ en ligne.
+        const urlSeed = new URLSearchParams(window.location.search).get('seed') ?? '';
+        mountSession(root, createHotseatSession({ seed: parseSeed(urlSeed), code: generateCode() }));
       },
 
       async onHost(name, seedText) {

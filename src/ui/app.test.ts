@@ -189,8 +189,8 @@ describe('expédition complète en hot-seat (critère d’acceptation Phase 7)',
   });
 });
 
-describe('pixel art (acceptation Phase 5)', () => {
-  it('la customisation du lobby produit exactement le même sprite en combat', () => {
+describe('pixel art (acceptation Phase 5, portée sur la scène Phase 9)', () => {
+  it('la customisation du lobby produit exactement la même signature de sprite en combat', () => {
     setupLobby(['Alice', 'Bob']);
     // On change la coiffure d'Alice
     const hairSel = q<HTMLSelectElement>('select[data-appearance="p1:hairStyle"]')!;
@@ -202,17 +202,49 @@ describe('pixel art (acceptation Phase 5)', () => {
     goToPrep(['p1', 'p2']);
     embark(['p1', 'p2']);
     click('[data-enter-node]');
-    const combatSprite = q<HTMLCanvasElement>('[data-player="p1"] canvas[data-sprite]')!.dataset.sprite;
+    // La plaque du joueur porte la signature de ce que la scène dessine (couche par couche)
+    const combatSprite = q('[data-player="p1"]')!.dataset.sprite;
     expect(combatSprite).toBe(lobbySprite); // fidèle, couche par couche
   });
+});
 
-  it('chaque type d’ennemi a son sprite', () => {
+describe('scène de combat spatiale (Phase 9)', () => {
+  it('la scène porte le décor du biome courant et une plaque par combattant', () => {
+    setupLobby(['Alice', 'Bob']);
+    goToPrep(['p1', 'p2']);
+    embark(['p1', 'p2']);
+    const biome = q('[data-biome]')!.getAttribute('data-biome');
+    click('[data-enter-node]');
+    const canvas = q<HTMLCanvasElement>('canvas.scene-canvas')!;
+    expect(canvas).toBeTruthy();
+    expect(canvas.dataset.sceneBiome).toBe(biome); // le décor suit le biome du nœud
+    expect(qa('[data-player]')).toHaveLength(2);
+    expect(qa('[data-enemy]').length).toBeGreaterThan(0);
+  });
+
+  it('le canvas de scène est persistant à travers les re-renders (fondation Phase 10)', () => {
     setupLobby(['Alice']);
     goToPrep(['p1']);
     embark(['p1']);
     click('[data-enter-node]');
-    for (const enemyCard of qa('[data-enemy]')) {
-      expect(enemyCard.querySelector('canvas[data-enemy-sprite]')).toBeTruthy();
-    }
+    const before = q<HTMLCanvasElement>('canvas.scene-canvas')!;
+    click('button[data-skill="p1:strike"]'); // provoque un re-render (sélection)
+    const after = q<HTMLCanvasElement>('canvas.scene-canvas')!;
+    expect(after).toBe(before); // même élément, jamais recréé
   });
+
+  for (const n of [1, 4, 8]) {
+    it(`à ${n} joueur(s), chaque combattant a une plaque à une position distincte`, () => {
+      const names = Array.from({ length: n }, (_, i) => `J${i + 1}`);
+      setupLobby(names);
+      const ids = names.map((_, i) => `p${i + 1}`);
+      goToPrep(ids);
+      embark(ids);
+      click('[data-enter-node]');
+      const plates = qa('[data-player]');
+      expect(plates).toHaveLength(n);
+      const positions = new Set(plates.map((p) => `${p.style.left}|${p.style.top}`));
+      expect(positions.size).toBe(n); // pas deux plaques au même endroit
+    });
+  }
 });
