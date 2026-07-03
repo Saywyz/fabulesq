@@ -10,6 +10,8 @@ export interface HostOptions {
   initial: GameState;
   transport: Transport;
   localPlayerId: PlayerId;
+  /** Sauvegarde de reprise (Phase 6) — appelé après chaque action appliquée. */
+  persist?: (state: GameState) => void;
 }
 
 export function createHostSession(opts: HostOptions): GameSession {
@@ -27,6 +29,7 @@ export function createHostSession(opts: HostOptions): GameSession {
     if (next === state) return; // action invalide : rien à diffuser
     state = next;
     broadcastSnapshot();
+    opts.persist?.(state);
     notify();
   };
 
@@ -38,10 +41,13 @@ export function createHostSession(opts: HostOptions): GameSession {
     }
   });
 
-  const offPresence = opts.transport.onPresence?.((names) => {
-    presence = names;
+  const offPresence = opts.transport.onPresence?.((peers) => {
+    presence = peers.map((p) => p.name);
     notify();
   });
+
+  // Reprise de partie : resynchronise immédiatement les invités qui attendaient.
+  broadcastSnapshot();
 
   return {
     role: 'host',
@@ -53,6 +59,7 @@ export function createHostSession(opts: HostOptions): GameSession {
     },
     canControl: (playerId) => playerId === opts.localPlayerId,
     getPresence: () => presence,
+    isHostOnline: () => true,
     leave() {
       offMessage();
       offPresence?.();

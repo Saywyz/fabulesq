@@ -19,7 +19,7 @@ export interface InitOptions {
 
 export function createInitialState(opts: InitOptions): GameState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     stateId: 0,
     hostId: opts.hostId,
     code: opts.code,
@@ -175,6 +175,7 @@ function apply(state: GameState, action: Action): GameState {
             planned: {},
             initiativeOrder: [],
             log: [`Niveau ${state.run.levelNumber} — ${label} !`],
+            cheered: {},
           },
         };
       }
@@ -354,6 +355,30 @@ function apply(state: GameState, action: Action): GameState {
         shopDone: { ...state.shopDone, [action.playerId]: true },
       };
       return state.players.every((p) => bought.shopDone[p.id]) ? advanceNode(bought) : bought;
+    }
+
+    case 'cheer': {
+      // Un joueur à terre reste dans la partie : il encourage un allié debout (§8).
+      if (state.phase !== 'combat_planning' || !state.combat) return state;
+      const cheerer = state.players.find((p) => p.id === action.playerId);
+      if (!cheerer || !cheerer.downed) return state;
+      if (state.combat.cheered[action.playerId]) return state; // une fois par round
+      const target = state.players.find((p) => p.id === action.targetId);
+      if (!target || !target.alive || target.downed) return state;
+      return {
+        ...state,
+        players: state.players.map((p) =>
+          p.id === target.id ? { ...p, block: p.block + BALANCE.cheerBlock } : p,
+        ),
+        combat: {
+          ...state.combat,
+          cheered: { ...state.combat.cheered, [action.playerId]: true },
+          log: [
+            ...state.combat.log,
+            `${cheerer.name}, à terre, encourage ${target.name} : +${BALANCE.cheerBlock} bouclier !`,
+          ],
+        },
+      };
     }
 
     case 'shop_skip': {

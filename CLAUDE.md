@@ -39,3 +39,4 @@
 - `docs/GAME_DESIGN.md` — règles, systèmes, boucle de jeu, équilibrage. **Le « quoi ».**
 - `docs/TECH_ARCHITECTURE.md` — arborescence, modèle de données (types), machine à états du combat, protocole Supabase. **Le « comment ».**
 - `docs/BUILD_PLAN.md` — phases, critères d'acceptation, ordre de construction. **Le « dans quel ordre ».**
+- `DECISIONS.md` (racine, **committé** — `docs/` ne l'est pas) — journal des décisions d'implémentation prises à chaque phase. **Le « pourquoi c'est comme ça ». À lire en premier si tu reprends le projet.**

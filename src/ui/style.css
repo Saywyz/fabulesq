@@ -43,6 +43,8 @@ h1 { text-shadow: 0 2px 0 #00000066; }
   margin-bottom: 12px;
 }
 .brand { font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+.pause-chip { border-color: var(--danger); color: #ff9d92; animation: target-pulse 1.4s infinite; }
+.cheer-panel { border-color: #6fe08a55; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .code-chip { letter-spacing: 2px; }
 .btn-mute { margin-left: auto; padding: 4px 10px; }
 

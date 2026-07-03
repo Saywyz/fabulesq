@@ -389,6 +389,7 @@ export function resolveRound(state: GameState): GameState {
       round: combat.round + 1,
       enemies: intents.enemies,
       planned: {},
+      cheered: {}, // les joueurs à terre peuvent de nouveau encourager
       log,
       initiativeOrder,
     },

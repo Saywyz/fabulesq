@@ -10,8 +10,8 @@ import { mapScreen } from './screens/map';
 import { eventScreen, restScreen, shopScreen } from './screens/nodes';
 import { isMuted, toggleMute } from './sound';
 
-/** Barre persistante : titre, code de partie, coupe-son. */
-function headerBar(state: GameState): HTMLElement {
+/** Barre persistante : titre, code de partie, pause éventuelle, coupe-son. */
+function headerBar(state: GameState, ctx: Ctx): HTMLElement {
   const muteBtn = el(
     'button',
     { class: 'btn btn-mute', 'data-mute': '', title: 'Couper / activer le son' },
@@ -27,6 +27,9 @@ function headerBar(state: GameState): HTMLElement {
     state.players.length > 0 || state.phase !== 'lobby'
       ? el('span', { class: 'chip code-chip' }, `code : ${state.code}`)
       : '',
+    ctx.isHostOnline()
+      ? ''
+      : el('span', { class: 'chip pause-chip', 'data-paused': '' }, '⏸ Hôte déconnecté — partie en pause'),
     muteBtn,
   );
 }
@@ -37,7 +40,7 @@ export function render(state: GameState, ctx: Ctx): HTMLElement {
   return el(
     'div',
     { class: `app-shell${phaseChanged ? ' phase-enter' : ''}` },
-    headerBar(state),
+    headerBar(state, ctx),
     screenFor(state, ctx),
   );
 }

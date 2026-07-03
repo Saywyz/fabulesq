@@ -216,6 +216,36 @@ export function combatScreen(state: GameState, ctx: Ctx): HTMLElement {
       : state.phase === 'combat_planning' && controllable.length > 0
         ? el('div', { class: 'panel planning-bar waiting' }, '⏳ En attente des autres joueurs…')
         : '',
+    ...cheerPanels(state, ctx),
     logBox,
   );
+}
+
+/** Les joueurs à terre restent dans la partie : ils peuvent encourager (Phase 6). */
+function cheerPanels(state: GameState, ctx: Ctx): HTMLElement[] {
+  if (state.phase !== 'combat_planning') return [];
+  const combat = state.combat!;
+  return state.players
+    .filter((p) => p.downed && ctx.canControl(p.id) && !combat.cheered[p.id])
+    .map((p) =>
+      el(
+        'div',
+        { class: 'panel cheer-panel' },
+        el('strong', {}, `🪦 ${p.name}`),
+        el('span', { class: 'muted' }, ' — à terre, mais pas muet ! Encouragez un allié : '),
+        ...state.players
+          .filter((a) => a.alive && !a.downed)
+          .map((ally) =>
+            el(
+              'button',
+              {
+                class: 'btn',
+                'data-cheer': `${p.id}:${ally.id}`,
+                onclick: () => ctx.dispatch({ t: 'cheer', playerId: p.id, targetId: ally.id }),
+              },
+              `📣 ${ally.name} (+2 🛡)`,
+            ),
+          ),
+      ),
+    );
 }

@@ -2,7 +2,7 @@
 // Un canal unique par partie : game:<CODE> (§6.1). Aucune logique de jeu ici.
 import { createClient } from '@supabase/supabase-js';
 import type { NetMessage } from './protocol';
-import type { Transport } from './transport';
+import type { PresencePeer, Transport } from './transport';
 
 const BROADCAST_EVENT = 'msg';
 
@@ -14,6 +14,7 @@ export interface ConnectOptions {
   code: string;
   presenceKey: string; // connectionId unique du client
   presenceName: string; // prénom affiché
+  isHost: boolean; // porté par la présence : les invités détectent la pause
 }
 
 export async function connectTransport(opts: ConnectOptions): Promise<Transport> {
@@ -32,21 +33,23 @@ export async function connectTransport(opts: ConnectOptions): Promise<Transport>
   });
 
   const messageCbs = new Set<(msg: NetMessage) => void>();
-  const presenceCbs = new Set<(names: string[]) => void>();
+  const presenceCbs = new Set<(peers: PresencePeer[]) => void>();
 
   channel.on('broadcast', { event: BROADCAST_EVENT }, ({ payload }) => {
     messageCbs.forEach((cb) => cb(payload as NetMessage));
   });
   channel.on('presence', { event: 'sync' }, () => {
-    const entries = Object.values(channel.presenceState<{ name: string }>());
-    const names = entries.flatMap((metas) => metas.map((m) => m.name)).filter(Boolean);
-    presenceCbs.forEach((cb) => cb(names));
+    const entries = Object.values(channel.presenceState<PresencePeer>());
+    const peers = entries
+      .flatMap((metas) => metas.map((m) => ({ name: m.name, isHost: Boolean(m.isHost) })))
+      .filter((p) => p.name);
+    presenceCbs.forEach((cb) => cb(peers));
   });
 
   await new Promise<void>((resolve, reject) => {
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
-        void channel.track({ name: opts.presenceName });
+        void channel.track({ name: opts.presenceName, isHost: opts.isHost });
         resolve();
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         reject(new Error(`Connexion Supabase impossible (${status}).`));

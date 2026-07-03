@@ -13,5 +13,7 @@ export interface GameSession {
   canControl(playerId: PlayerId): boolean;
   /** Noms des joueurs connectés (présence) ; vide en hot-seat. */
   getPresence(): string[];
+  /** false = l'hôte est déconnecté (partie en pause, §6.3). Hot-seat/hôte : toujours true. */
+  isHostOnline(): boolean;
   leave(): void;
 }

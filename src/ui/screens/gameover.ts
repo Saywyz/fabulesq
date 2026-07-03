@@ -13,6 +13,11 @@ export function gameOverScreen(state: GameState, _ctx: Ctx): HTMLElement {
     el('h1', {}, '💀 Game over'),
     el('p', {}, `L'équipe est tombée au niveau ${levelNumber}, nœud ${currentNode + 1}.`),
     el(
+      'p',
+      { class: 'muted' },
+      `Seed de la run : ${state.run.seed} — hébergez avec cette seed pour la revivre à l'identique.`,
+    ),
+    el(
       'div',
       { class: 'cards' },
       ...state.players.map((p) =>

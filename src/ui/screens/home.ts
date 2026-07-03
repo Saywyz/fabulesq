@@ -5,14 +5,28 @@ export interface HomeHandlers {
   onlineAvailable: boolean;
   error?: string;
   onLocal(): void;
-  onHost(name: string): void;
+  onHost(name: string, seed: string): void;
   onJoin(name: string, code: string): void;
+  onResume(code: string): void;
 }
 
 export function homeScreen(handlers: HomeHandlers): HTMLElement {
   const nameInput = el('input', { 'data-home-name': '', placeholder: 'Votre prénom…', maxlength: '16' });
   const codeInput = el('input', {
     'data-home-code': '',
+    placeholder: 'CODE',
+    maxlength: '8',
+    style: 'text-transform:uppercase;letter-spacing:2px;width:120px',
+  });
+  const seedInput = el('input', {
+    'data-home-seed': '',
+    placeholder: 'seed (optionnel)',
+    maxlength: '20',
+    style: 'width:140px',
+    title: 'Même seed = même run : lancez un défi à un autre groupe !',
+  });
+  const resumeInput = el('input', {
+    'data-home-resume': '',
     placeholder: 'CODE',
     maxlength: '8',
     style: 'text-transform:uppercase;letter-spacing:2px;width:120px',
@@ -47,9 +61,14 @@ export function homeScreen(handlers: HomeHandlers): HTMLElement {
               { class: 'home-actions' },
               el(
                 'button',
-                { class: 'btn btn-primary', 'data-mode-host': '', onclick: () => handlers.onHost(playerName()) },
+                {
+                  class: 'btn btn-primary',
+                  'data-mode-host': '',
+                  onclick: () => handlers.onHost(playerName(), seedInput.value.trim()),
+                },
                 'Héberger une partie',
               ),
+              seedInput,
               el('span', { class: 'muted' }, ' ou '),
               codeInput,
               el(
@@ -60,6 +79,21 @@ export function homeScreen(handlers: HomeHandlers): HTMLElement {
                   onclick: () => handlers.onJoin(playerName(), codeInput.value.trim().toUpperCase()),
                 },
                 'Rejoindre',
+              ),
+            ),
+            el(
+              'div',
+              { class: 'home-actions' },
+              el('span', { class: 'muted' }, 'Votre partie a planté ? '),
+              resumeInput,
+              el(
+                'button',
+                {
+                  class: 'btn',
+                  'data-mode-resume': '',
+                  onclick: () => handlers.onResume(resumeInput.value.trim().toUpperCase()),
+                },
+                '↻ Reprendre (hôte)',
               ),
             ),
           )

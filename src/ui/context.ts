@@ -20,4 +20,6 @@ export interface Ctx {
   role: 'hotseat' | 'host' | 'guest';
   /** Noms connectés (présence Supabase) ; vide en hot-seat. */
   getPresence(): string[];
+  /** false = hôte déconnecté : partie en pause (§6.3). */
+  isHostOnline(): boolean;
 }

@@ -71,6 +71,22 @@ describe('sessions host / guest (host-authoritative, §6)', () => {
     expect(guest.getState()!.players.find((p) => p.id === 'host-1')!.ready).toBe(true);
   });
 
+  it("l'hôte persiste l'état après chaque action appliquée (reprise de partie, Phase 6)", () => {
+    const { a } = fakePair();
+    const persisted: number[] = [];
+    const initial = createInitialState({ seed: 7, hostId: 'host-1', code: 'NET001' });
+    const host = createHostSession({
+      initial,
+      transport: a,
+      localPlayerId: 'host-1',
+      persist: (s) => persisted.push(s.stateId),
+    });
+    host.dispatch({ t: 'join', player: { id: 'host-1', name: 'Hôte', connectionId: 'host-1' } });
+    host.dispatch({ t: 'set_ready', playerId: 'host-1', ready: true });
+    expect(persisted.length).toBeGreaterThanOrEqual(2);
+    expect(persisted[persisted.length - 1]).toBe(host.getState()!.stateId);
+  });
+
   it('chacun ne contrôle que son joueur ; les listeners sont notifiés', () => {
     const { a, b } = fakePair();
     const host = hostWithLobby(a);

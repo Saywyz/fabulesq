@@ -32,6 +32,7 @@ export function createHotseatSession(opts: HotseatOptions): GameSession {
     },
     canControl: () => true,
     getPresence: () => [],
+    isHostOnline: () => true,
     leave() {},
   };
 }
@@ -76,6 +77,7 @@ export function mountSession(root: HTMLElement, session: GameSession): void {
     },
     canControl: (playerId) => session.canControl(playerId),
     getPresence: () => session.getPresence(),
+    isHostOnline: () => session.isHostOnline(),
   };
 
   /** Une sélection devient obsolète dès que l'action est planifiée ou que la phase change. */

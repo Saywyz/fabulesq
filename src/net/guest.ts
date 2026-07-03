@@ -14,6 +14,7 @@ export interface GuestOptions {
 export function createGuestSession(opts: GuestOptions): GameSession {
   let state: GameState | null = null;
   let presence: string[] = [];
+  let hostOnline = true; // optimiste tant que la présence n'a pas synchronisé
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach((cb) => cb());
 
@@ -25,8 +26,9 @@ export function createGuestSession(opts: GuestOptions): GameSession {
     notify();
   });
 
-  const offPresence = opts.transport.onPresence?.((names) => {
-    presence = names;
+  const offPresence = opts.transport.onPresence?.((peers) => {
+    presence = peers.map((p) => p.name);
+    hostOnline = peers.some((p) => p.isHost);
     notify();
   });
 
@@ -45,6 +47,7 @@ export function createGuestSession(opts: GuestOptions): GameSession {
     },
     canControl: (playerId) => playerId === opts.localPlayerId,
     getPresence: () => presence,
+    isHostOnline: () => hostOnline,
     leave() {
       offMessage();
       offPresence?.();

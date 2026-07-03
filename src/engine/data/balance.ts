@@ -49,6 +49,7 @@ export const BALANCE = {
 
   // Mort / résurrection (GAME_DESIGN.md §8)
   revivedHpPct: 50, // PV rendus par un revive, en % des PV max
+  cheerBlock: 2, // bouclier donné par l'encouragement d'un joueur à terre (Phase 6)
 
   // Durée par défaut des debuffs posés par les ennemis (ex. vulnérable)
   enemyDebuffDuration: 2,

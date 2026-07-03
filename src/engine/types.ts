@@ -144,6 +144,7 @@ export interface CombatState {
   planned: Record<PlayerId, PlannedAction>;
   initiativeOrder: EntityId[]; // recalculé à la résolution
   log: string[]; // journal lisible pour l'UI
+  cheered: Record<PlayerId, boolean>; // joueurs à terre ayant encouragé ce round (Phase 6)
 }
 
 export interface GameState {
@@ -184,4 +185,6 @@ export type Action =
   | { t: 'rest_choice'; playerId: PlayerId; choice: 'heal' | 'forget'; skillId?: SkillId }
   | { t: 'shop_buy'; playerId: PlayerId; skillId: SkillId }
   | { t: 'shop_skip'; playerId: PlayerId }
+  // Joueurs à terre : encourager un allié debout, une fois par round (Phase 6)
+  | { t: 'cheer'; playerId: PlayerId; targetId: EntityId }
   | { t: 'leave'; playerId: PlayerId };
