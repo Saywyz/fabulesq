@@ -1,7 +1,7 @@
 // Session invité : envoie ses Action à l'hôte et applique les snapshots reçus.
 // N'exécute JAMAIS le reducer localement (§6.1).
 import type { Action, GameState, PlayerId } from '../engine/types';
-import { makeMessage, shouldApplySnapshot } from './protocol';
+import { isCompatibleSnapshot, makeMessage, shouldApplySnapshot } from './protocol';
 import type { GameSession } from './session';
 import type { Transport } from './transport';
 
@@ -21,6 +21,7 @@ export function createGuestSession(opts: GuestOptions): GameSession {
   const offMessage = opts.transport.onMessage((msg) => {
     if (msg.type !== 'STATE_SNAPSHOT') return;
     const snapshot = msg.payload as GameState;
+    if (!isCompatibleSnapshot(snapshot)) return; // autre version de schéma : ignoré (C1)
     if (!shouldApplySnapshot(state?.stateId ?? -1, snapshot.stateId)) return;
     state = snapshot;
     notify();

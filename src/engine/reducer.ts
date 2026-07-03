@@ -1,15 +1,17 @@
 // Réducteur pur : reduce(state, action) => newState. Seule porte d'entrée des transitions.
-// Les enchaînements déterministes (intentions, résolution, fin de draft) sont chaînés
+// Les enchaînements déterministes (intentions, résolution, départ d'expédition) sont chaînés
 // en interne par le reducer (décision §5.1 de TECH_ARCHITECTURE.md).
 import { resolveRound } from './combat/resolution';
 import { assignIntents, buildEnemies } from './combat/stateMachine';
-import { generateOffers } from './draft';
 import { BALANCE } from './data/balance';
+import { BIOMES } from './data/biomes';
 import { CLASSES, DEFAULT_CLASS_ID } from './data/classes';
 import { EVENTS, type EventEffect } from './data/events';
-import { DRAFT_POOL, SKILLS } from './data/skills';
+import { SKILLS } from './data/skills';
+import { advanceNode, generateExpedition, progressAt } from './expedition';
 import { createRngState, next, nextInt } from './rng';
-import type { Action, GameState, MapNode, Player } from './types';
+import type { Action, GameState, Player } from './types';
+import { SCHEMA_VERSION } from './types';
 
 export interface InitOptions {
   seed: number;
@@ -19,35 +21,18 @@ export interface InitOptions {
 
 export function createInitialState(opts: InitOptions): GameState {
   return {
-    schemaVersion: 3,
+    schemaVersion: SCHEMA_VERSION,
     stateId: 0,
     hostId: opts.hostId,
     code: opts.code,
     phase: 'lobby',
     rngState: createRngState(opts.seed),
     players: [],
-    run: { seed: opts.seed, nodes: [], currentNode: 0, levelNumber: 1 },
+    run: { seed: opts.seed, band: 'medium', nodes: [], currentNode: 0 },
     combat: null,
-    draftOffers: {},
-    draftPicks: {},
-    rerollsLeft: {},
     event: null,
     restDone: {},
-    shopOffers: {},
-    shopDone: {},
   };
-}
-
-/** Carte d'un niveau (Phase 4) : le slot « spécial » tourne selon le niveau. */
-function generateNodes(levelNumber: number): MapNode[] {
-  return BALANCE.nodeLayout.map((slot, index) => ({
-    index,
-    type:
-      slot === 'special'
-        ? BALANCE.specialRotation[(levelNumber - 1) % BALANCE.specialRotation.length]!
-        : slot,
-    cleared: false,
-  }));
 }
 
 function withClass(p: Player, classId: string): Player {
@@ -96,7 +81,6 @@ function apply(state: GameState, action: Action): GameState {
         energy: 0,
         maxEnergy: 0,
         threat: 0,
-        gold: 0,
         ready: false,
         downed: false,
       };
@@ -115,9 +99,11 @@ function apply(state: GameState, action: Action): GameState {
     }
 
     case 'set_class': {
-      if (state.phase !== 'lobby') return state;
+      // La classe se choisit au lobby et se rechoisit en prépa (kit de départ, Phase 7).
+      if (state.phase !== 'lobby' && state.phase !== 'prep') return state;
       if (!CLASSES[action.classId]) return state;
-      if (!state.players.some((p) => p.id === action.playerId)) return state;
+      const player = state.players.find((p) => p.id === action.playerId);
+      if (!player || (state.phase === 'prep' && player.ready)) return state;
       return {
         ...state,
         players: state.players.map((p) => (p.id === action.playerId ? withClass(p, action.classId) : p)),
@@ -134,12 +120,38 @@ function apply(state: GameState, action: Action): GameState {
     }
 
     case 'start_run': {
+      // Lobby complet → prépa d'expédition (le départ réel attend les prep_ready).
       if (state.phase !== 'lobby') return state;
       if (state.players.length === 0 || !state.players.every((p) => p.ready)) return state;
       return {
         ...state,
+        phase: 'prep',
+        players: state.players.map((p) => ({ ...p, ready: false })),
+      };
+    }
+
+    case 'set_length': {
+      // Choix d'équipe : la bande de longueur de l'expédition (dernier clic l'emporte).
+      if (state.phase !== 'prep') return state;
+      if (state.run.band === action.band) return state;
+      return { ...state, run: { ...state.run, band: action.band } };
+    }
+
+    case 'prep_ready': {
+      if (state.phase !== 'prep') return state;
+      if (!state.players.some((p) => p.id === action.playerId)) return state;
+      const readied: GameState = {
+        ...state,
+        players: state.players.map((p) => (p.id === action.playerId ? { ...p, ready: action.ready } : p)),
+      };
+      if (!readied.players.every((p) => p.ready)) return readied;
+      // Tous prêts → l'expédition est générée (PRNG seedé) et le départ est donné.
+      const g = generateExpedition(readied.rngState, readied.run.band);
+      return {
+        ...readied,
+        rngState: g.state,
         phase: 'map',
-        run: { ...state.run, nodes: generateNodes(1), currentNode: 0, levelNumber: 1 },
+        run: { ...readied.run, nodes: g.nodes, currentNode: 0 },
       };
     }
 
@@ -158,12 +170,13 @@ function apply(state: GameState, action: Action): GameState {
           threat: 0,
           energy: p.maxEnergy,
         }));
-        const enemies = buildEnemies(node, players.length, state.run.levelNumber);
+        const progress = progressAt(node.index, state.run.nodes.length);
+        const enemies = buildEnemies(node, players.length, progress);
         const damageMult = node.type === 'elite' ? BALANCE.eliteDamageMult : 1;
         // combat_intent est enchaîné immédiatement : intentions puis planification (§5.1).
-        const intents = assignIntents(enemies, players, state.rngState, state.run.levelNumber, damageMult);
-        const label =
-          node.type === 'boss' ? 'BOSS' : node.type === 'elite' ? 'ÉLITE' : `combat ${node.index + 1}`;
+        const intents = assignIntents(enemies, players, state.rngState, progress, damageMult);
+        const label = node.type === 'boss' ? 'BOSS FINAL' : node.type === 'elite' ? 'ÉLITE' : 'combat';
+        const biomeName = BIOMES[node.biome]?.name ?? node.biome;
         return {
           ...state,
           players,
@@ -174,7 +187,7 @@ function apply(state: GameState, action: Action): GameState {
             enemies: intents.enemies,
             planned: {},
             initiativeOrder: [],
-            log: [`Niveau ${state.run.levelNumber} — ${label} !`],
+            log: [`Nœud ${node.index + 1}/${state.run.nodes.length} (${biomeName}) — ${label} !`],
             cheered: {},
           },
         };
@@ -195,23 +208,6 @@ function apply(state: GameState, action: Action): GameState {
           ...state,
           phase: 'node_rest',
           restDone: Object.fromEntries(state.players.map((p) => [p.id, false])),
-        };
-      }
-
-      if (node.type === 'shop') {
-        let rng = state.rngState;
-        const shopOffers: GameState['shopOffers'] = {};
-        for (const p of state.players) {
-          const g = generateOffers(DRAFT_POOL, BALANCE.shopOfferCount, rng, p.skills);
-          rng = g.state;
-          shopOffers[p.id] = g.offers;
-        }
-        return {
-          ...state,
-          rngState: rng,
-          phase: 'node_shop',
-          shopOffers,
-          shopDone: Object.fromEntries(state.players.map((p) => [p.id, false])),
         };
       }
 
@@ -268,36 +264,6 @@ function apply(state: GameState, action: Action): GameState {
       return everyoneConfirmed ? resolveRound(state) : state;
     }
 
-    case 'draft_pick': {
-      if (state.phase !== 'reward_draft') return state;
-      if (state.draftPicks[action.playerId] != null) return state;
-      const offers = state.draftOffers[action.playerId] ?? [];
-      if (!offers.includes(action.skillId)) return state;
-      const picked: GameState = {
-        ...state,
-        players: state.players.map((p) =>
-          p.id === action.playerId ? { ...p, skills: [...p.skills, action.skillId] } : p,
-        ),
-        draftPicks: { ...state.draftPicks, [action.playerId]: action.skillId },
-      };
-      return allDraftDone(picked) ? advanceNode(picked) : picked;
-    }
-
-    case 'draft_reroll': {
-      if (state.phase !== 'reward_draft') return state;
-      if ((state.rerollsLeft[action.playerId] ?? 0) <= 0) return state;
-      if (state.draftPicks[action.playerId] != null) return state;
-      const player = state.players.find((p) => p.id === action.playerId);
-      if (!player) return state;
-      const g = generateOffers(DRAFT_POOL, BALANCE.draftOfferCount, state.rngState, player.skills);
-      return {
-        ...state,
-        rngState: g.state,
-        draftOffers: { ...state.draftOffers, [action.playerId]: g.offers },
-        rerollsLeft: { ...state.rerollsLeft, [action.playerId]: (state.rerollsLeft[action.playerId] ?? 0) - 1 },
-      };
-    }
-
     case 'event_choice': {
       if (state.phase !== 'node_event' || !state.event) return state;
       if (!state.players.some((p) => p.id === action.playerId)) return state;
@@ -336,27 +302,6 @@ function apply(state: GameState, action: Action): GameState {
       return state.players.every((p) => rested.restDone[p.id]) ? advanceNode(rested) : rested;
     }
 
-    case 'shop_buy': {
-      if (state.phase !== 'node_shop') return state;
-      const player = state.players.find((p) => p.id === action.playerId);
-      if (!player || state.shopDone[action.playerId]) return state;
-      if (!(state.shopOffers[action.playerId] ?? []).includes(action.skillId)) return state;
-      const skill = SKILLS[action.skillId];
-      if (!skill) return state;
-      const price = BALANCE.shopPrices[skill.rarity];
-      if (player.gold < price) return state;
-      const bought: GameState = {
-        ...state,
-        players: state.players.map((p) =>
-          p.id === action.playerId
-            ? { ...p, gold: p.gold - price, skills: [...p.skills, action.skillId] }
-            : p,
-        ),
-        shopDone: { ...state.shopDone, [action.playerId]: true },
-      };
-      return state.players.every((p) => bought.shopDone[p.id]) ? advanceNode(bought) : bought;
-    }
-
     case 'cheer': {
       // Un joueur à terre reste dans la partie : il encourage un allié debout (§8).
       if (state.phase !== 'combat_planning' || !state.combat) return state;
@@ -379,17 +324,6 @@ function apply(state: GameState, action: Action): GameState {
           ],
         },
       };
-    }
-
-    case 'shop_skip': {
-      if (state.phase !== 'node_shop') return state;
-      if (!state.players.some((p) => p.id === action.playerId)) return state;
-      if (state.shopDone[action.playerId]) return state;
-      const skipped: GameState = {
-        ...state,
-        shopDone: { ...state.shopDone, [action.playerId]: true },
-      };
-      return state.players.every((p) => skipped.shopDone[p.id]) ? advanceNode(skipped) : skipped;
     }
 
     case 'leave': {
@@ -425,8 +359,13 @@ function applyEventEffects(
           hp: Math.max(1, p.hp - Math.floor((p.maxHp * eff.pct) / 100)),
         }));
         break;
-      case 'gold_all':
-        players = players.map((p) => ({ ...p, gold: p.gold + eff.amount }));
+      case 'max_hp_all':
+        // Boon mineur (D1) : l'endurance gagnée est aussi des PV immédiats.
+        players = players.map((p) => ({
+          ...p,
+          maxHp: p.maxHp + eff.amount,
+          hp: p.hp + eff.amount,
+        }));
         break;
       case 'gamble': {
         const roll = next(rng);
@@ -438,41 +377,4 @@ function applyEventEffects(
   };
   effects.forEach(apply);
   return { players, rngState: rng };
-}
-
-function allDraftDone(state: GameState): boolean {
-  return state.players.every(
-    (p) => state.draftPicks[p.id] != null || (state.draftOffers[p.id] ?? []).length === 0,
-  );
-}
-
-/** Nœud terminé : marqué, avance sur la carte ; après un boss, niveau suivant. */
-function advanceNode(state: GameState): GameState {
-  const clearedIndex = state.run.currentNode;
-  const nodes = state.run.nodes.map((n) => (n.index === clearedIndex ? { ...n, cleared: true } : n));
-  const clearedNode = nodes[clearedIndex]!;
-
-  const run =
-    clearedNode.type === 'boss'
-      ? {
-          ...state.run,
-          levelNumber: state.run.levelNumber + 1,
-          nodes: generateNodes(state.run.levelNumber + 1),
-          currentNode: 0,
-        }
-      : { ...state.run, nodes, currentNode: clearedIndex + 1 };
-
-  return {
-    ...state,
-    phase: 'map',
-    run,
-    combat: null,
-    draftOffers: {},
-    draftPicks: {},
-    rerollsLeft: {},
-    event: null,
-    restDone: {},
-    shopOffers: {},
-    shopDone: {},
-  };
 }

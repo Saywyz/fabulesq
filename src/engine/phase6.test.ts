@@ -10,7 +10,10 @@ function combatWithDownedP1(): GameState {
     s = reduce(s, { t: 'join', player: { id, name: id.toUpperCase(), connectionId: id } });
     s = reduce(s, { t: 'set_ready', playerId: id, ready: true });
   }
-  s = reduce(s, { t: 'start_run' });
+  s = reduce(s, { t: 'start_run' }); // → prépa
+  for (const id of ['p1', 'p2'] as const) {
+    s = reduce(s, { t: 'prep_ready', playerId: id, ready: true });
+  }
   s = reduce(s, { t: 'enter_node', nodeIndex: 0 });
   return {
     ...s,

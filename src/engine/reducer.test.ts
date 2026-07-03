@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState, reduce } from './reducer';
 import { getStacks } from './combat/status';
-import type { GameState, Player, SkillId } from './types';
+import { BALANCE } from './data/balance';
+import type { GameState, LengthBand, Player, SkillId } from './types';
 
 // ————— Helpers de scénario (bot déterministe, aucun aléa hors du PRNG de l'état) —————
 
-function setup(n: number, seed = 42): GameState {
+/** Lobby complet → prépa → départ : l'état rendu est sur la carte, expédition générée. */
+function setup(n: number, seed = 42, band?: LengthBand): GameState {
   let s = createInitialState({ seed, hostId: 'p1', code: 'TEST42' });
   for (let i = 1; i <= n; i++) {
     s = reduce(s, { t: 'join', player: { id: `p${i}`, name: `P${i}`, connectionId: `c${i}` } });
     s = reduce(s, { t: 'set_class', playerId: `p${i}`, classId: 'warrior' });
     s = reduce(s, { t: 'set_ready', playerId: `p${i}`, ready: true });
   }
-  return reduce(s, { t: 'start_run' });
+  s = reduce(s, { t: 'start_run' }); // → prep
+  if (band) s = reduce(s, { t: 'set_length', band });
+  for (let i = 1; i <= n; i++) {
+    s = reduce(s, { t: 'prep_ready', playerId: `p${i}`, ready: true });
+  }
+  return s; // le dernier prep_ready a généré l'expédition → phase 'map'
 }
 
 function enterCombat(s: GameState): GameState {
@@ -29,13 +36,7 @@ function firstAliveEnemyId(s: GameState): string {
 
 type Pick_ = { skillId: SkillId; targetId?: string };
 
-/** Bot par défaut : frappe, mais se soigne quand il est mal en point (si drafté). */
-function defaultPick(s: GameState, p: Player): Pick_ {
-  if (p.hp < p.maxHp * 0.5) {
-    if (p.skills.includes('second_wind')) return { skillId: 'second_wind' };
-    if (p.skills.includes('consecrate')) return { skillId: 'consecrate' };
-    if (p.skills.includes('rally_heal')) return { skillId: 'rally_heal', targetId: p.id };
-  }
+function defaultPick(s: GameState, _p: Player): Pick_ {
   return { skillId: 'strike', targetId: firstAliveEnemyId(s) };
 }
 
@@ -59,45 +60,37 @@ function botCombat(s: GameState): GameState {
   return s;
 }
 
-/** Chaque joueur drafte : priorité au soin/défense, sinon la première offre. */
-function botDraft(s: GameState): GameState {
-  const priority: SkillId[] = ['second_wind', 'consecrate', 'rally_heal', 'shield_wall'];
-  for (const p of s.players) {
-    if (s.phase !== 'reward_draft') break;
-    const offers = s.draftOffers[p.id] ?? [];
-    if (offers.length > 0 && s.draftPicks[p.id] == null) {
-      const skillId = offers.find((o) => priority.includes(o)) ?? offers[0]!;
-      s = reduce(s, { t: 'draft_pick', playerId: p.id, skillId });
-    }
-  }
-  return s;
-}
-
-/** Simule une run complète jusqu'au game over. Retourne l'état final + télémetrie. */
-function botRun(n: number, seed: number): { final: GameState; sawBoss: boolean } {
-  let s = setup(n, seed);
-  let sawBoss = false;
+/** Simule une expédition complète jusqu'à victoire ou défaite. */
+function botRun(n: number, seed: number, band: LengthBand = 'medium'): GameState {
+  let s = setup(n, seed, band);
   let guard = 0;
-  while (s.phase !== 'game_over' && guard++ < 3000) {
+  while (s.phase !== 'game_over' && s.phase !== 'victory' && guard++ < 3000) {
     if (s.phase === 'map') s = enterCombat(s);
-    else if (s.phase === 'combat_planning') {
-      if (s.combat!.enemies.some((e) => e.enemyType === 'ogre_boss')) sawBoss = true;
-      s = playRound(s);
-    } else if (s.phase === 'reward_draft') s = botDraft(s);
+    else if (s.phase === 'combat_planning') s = playRound(s);
     else if (s.phase === 'node_event') s = reduce(s, { t: 'event_choice', playerId: 'p1', optionIndex: 0 });
     else if (s.phase === 'node_rest') {
       for (const p of s.players) s = reduce(s, { t: 'rest_choice', playerId: p.id, choice: 'heal' });
-    } else if (s.phase === 'node_shop') {
-      for (const p of s.players) s = reduce(s, { t: 'shop_skip', playerId: p.id });
     } else throw new Error(`phase inattendue : ${s.phase}`);
   }
   expect(guard).toBeLessThan(3000);
-  return { final: s, sawBoss };
+  return s;
+}
+
+/** Saute au nœud d'index donné (les précédents sont marqués nettoyés). */
+function jumpTo(s: GameState, index: number): GameState {
+  return {
+    ...s,
+    run: {
+      ...s.run,
+      currentNode: index,
+      nodes: s.run.nodes.map((n) => (n.index < index ? { ...n, cleared: true } : n)),
+    },
+  };
 }
 
 // ————— Lobby & lancement —————
 
-describe('lobby et lancement de run', () => {
+describe('lobby et lancement', () => {
   it('join ajoute un joueur avec les stats et compétences de sa classe', () => {
     let s = createInitialState({ seed: 1, hostId: 'p1', code: 'ABC123' });
     s = reduce(s, { t: 'join', player: { id: 'p1', name: 'Alice', connectionId: 'c1' } });
@@ -117,14 +110,66 @@ describe('lobby et lancement de run', () => {
     expect(s).toBe(before); // action invalide = état inchangé
   });
 
-  it('start_run génère une carte : combat, spécial, combat, élite, boss', () => {
-    const s = setup(2);
+  it('start_run mène à la prépa (pas directement à la carte) et remet les « prêt » à zéro', () => {
+    let s = createInitialState({ seed: 1, hostId: 'p1', code: 'ABC123' });
+    s = reduce(s, { t: 'join', player: { id: 'p1', name: 'A', connectionId: 'c1' } });
+    s = reduce(s, { t: 'set_ready', playerId: 'p1', ready: true });
+    s = reduce(s, { t: 'start_run' });
+    expect(s.phase).toBe('prep');
+    expect(s.players.every((p) => !p.ready)).toBe(true);
+    expect(s.run.nodes).toHaveLength(0); // l'expédition n'est pas encore générée
+  });
+});
+
+// ————— Prépa d'expédition (Phase 7) —————
+
+describe('préparation d’expédition', () => {
+  function prepState(n = 2, seed = 5): GameState {
+    let s = createInitialState({ seed, hostId: 'p1', code: 'PREP01' });
+    for (let i = 1; i <= n; i++) {
+      s = reduce(s, { t: 'join', player: { id: `p${i}`, name: `P${i}`, connectionId: `c${i}` } });
+      s = reduce(s, { t: 'set_ready', playerId: `p${i}`, ready: true });
+    }
+    return reduce(s, { t: 'start_run' });
+  }
+
+  it('set_length change la bande d’équipe, uniquement en prépa', () => {
+    let s = prepState();
+    s = reduce(s, { t: 'set_length', band: 'long' });
+    expect(s.run.band).toBe('long');
+    const initial = createInitialState({ seed: 1, hostId: 'p1', code: 'X' });
+    expect(reduce(initial, { t: 'set_length', band: 'long' })).toBe(initial); // hors prépa : refusé
+  });
+
+  it('le dernier prep_ready génère l’expédition et donne le départ', () => {
+    let s = prepState();
+    s = reduce(s, { t: 'prep_ready', playerId: 'p1', ready: true });
+    expect(s.phase).toBe('prep'); // p2 n'est pas prêt
+    s = reduce(s, { t: 'prep_ready', playerId: 'p2', ready: true });
     expect(s.phase).toBe('map');
-    const types = s.run.nodes.map((n) => n.type);
-    expect(types[0]).toBe('combat');
-    expect(['event', 'rest', 'shop']).toContain(types[1]);
-    expect(types.slice(2)).toEqual(['combat', 'elite', 'boss']);
+    expect(s.run.nodes.length).toBeGreaterThan(0);
     expect(s.run.currentNode).toBe(0);
+    expect(s.run.nodes[s.run.nodes.length - 1]!.type).toBe('boss');
+  });
+
+  it('la bande choisie pilote la longueur générée', () => {
+    for (const band of ['short', 'long'] as const) {
+      let s = prepState(1, 9);
+      s = reduce(s, { t: 'set_length', band });
+      s = reduce(s, { t: 'prep_ready', playerId: 'p1', ready: true });
+      const { min, max } = BALANCE.expeditionLength[band];
+      expect(s.run.nodes.length).toBeGreaterThanOrEqual(min);
+      expect(s.run.nodes.length).toBeLessThanOrEqual(max);
+    }
+  });
+
+  it('on peut changer de classe en prépa tant qu’on n’est pas prêt', () => {
+    let s = prepState();
+    s = reduce(s, { t: 'set_class', playerId: 'p1', classId: 'warrior' });
+    expect(s.players[0]!.classId).toBe('warrior');
+    s = reduce(s, { t: 'prep_ready', playerId: 'p1', ready: true });
+    const locked = reduce(s, { t: 'set_class', playerId: 'p1', classId: 'warrior' });
+    expect(locked).toBe(s); // prêt = verrouillé
   });
 });
 
@@ -147,6 +192,16 @@ describe('entrée en combat (machine à états §5)', () => {
       expect(e.intent!.description.length).toBeGreaterThan(0);
     }
   });
+
+  it('le pacing durcit les ennemis en fin de route (même type, plus de PV)', () => {
+    const s = setup(2, 13);
+    const early = enterCombat(s);
+    const lastCombatIndex = s.run.nodes.filter((n) => n.type === 'combat').pop()!.index;
+    const late = enterCombat(jumpTo(s, lastCombatIndex));
+    const avgHp = (st: GameState) =>
+      st.combat!.enemies.reduce((sum, e) => sum + e.maxHp, 0) / st.combat!.enemies.length;
+    expect(avgHp(late)).toBeGreaterThan(avgHp(early));
+  });
 });
 
 // ————— Planification & résolution —————
@@ -156,11 +211,13 @@ describe('planification et résolution', () => {
     let s = enterCombat(setup(2));
     const hpBefore = s.combat!.enemies.reduce((sum, e) => sum + e.hp, 0);
     s = playRound(s);
-    const hpAfter = s.combat!.enemies.reduce((sum, e) => sum + e.hp, 0);
-    expect(hpAfter).toBeLessThan(hpBefore);
     if (s.phase === 'combat_planning') {
+      const hpAfter = s.combat!.enemies.reduce((sum, e) => sum + e.hp, 0);
+      expect(hpAfter).toBeLessThan(hpBefore);
       expect(s.combat!.round).toBe(2);
       expect(s.players.every((p) => p.energy === p.maxEnergy)).toBe(true); // énergie rechargée
+    } else {
+      expect(s.phase).toBe('map'); // combat gagné d'un coup
     }
   });
 
@@ -267,67 +324,55 @@ describe('joueurs à terre (GAME_DESIGN §8)', () => {
   });
 });
 
-// ————— Draft (§6) —————
+// ————— Fins de combat : avance, victoire, défaite (critères Phase 7) —————
 
-describe('draft de fin de combat', () => {
-  function victoryState(): GameState {
-    return botCombat(enterCombat(setup(2, 21)));
-  }
-
-  it('la victoire ouvre le draft : 3 offres par joueur, hors compétences possédées, 1 reroll', () => {
-    const s = victoryState();
-    expect(s.phase).toBe('reward_draft');
-    for (const p of s.players) {
-      const offers = s.draftOffers[p.id]!;
-      expect(offers).toHaveLength(3);
-      for (const id of offers) expect(p.skills).not.toContain(id);
-      expect(s.rerollsLeft[p.id]).toBe(1);
-    }
-  });
-
-  it('draft_pick ajoute la compétence au build ; quand tous ont choisi, retour à la carte', () => {
-    let s = victoryState();
-    const pick1 = s.draftOffers['p1']![0]!;
-    s = reduce(s, { t: 'draft_pick', playerId: 'p1', skillId: pick1 });
-    expect(s.players.find((p) => p.id === 'p1')!.skills).toContain(pick1);
-    expect(s.phase).toBe('reward_draft'); // p2 n'a pas encore choisi
-    s = reduce(s, { t: 'draft_pick', playerId: 'p2', skillId: s.draftOffers['p2']![0]! });
+describe('fins de combat (Phase 7)', () => {
+  it('un combat ordinaire gagné ramène à la carte : nœud nettoyé, on avance (plus de draft)', () => {
+    const s = botCombat(enterCombat(setup(2, 21)));
     expect(s.phase).toBe('map');
+    expect(s.combat).toBeNull();
     expect(s.run.nodes[0]!.cleared).toBe(true);
     expect(s.run.currentNode).toBe(1);
+    expect(s.players.every((p) => !p.downed)).toBe(true); // les downed se relèvent en fin de combat
   });
 
-  it('le reroll régénère les offres et se consomme', () => {
-    let s = victoryState();
-    s = reduce(s, { t: 'draft_reroll', playerId: 'p1' });
-    expect(s.rerollsLeft['p1']).toBe(0);
-    expect(s.draftOffers['p1']).toHaveLength(3);
-    const before = s;
-    s = reduce(s, { t: 'draft_reroll', playerId: 'p1' });
-    expect(s).toBe(before); // plus de reroll
+  it('boss final vaincu ⇒ phase victory', () => {
+    let s = setup(2, 21);
+    s = enterCombat(jumpTo(s, s.run.nodes.length - 1));
+    expect(s.combat!.enemies.some((e) => e.enemyType === 'ogre_boss')).toBe(true);
+    // On abrège l'exécution : le boss est à 1 PV, la première frappe le tue.
+    s = { ...s, combat: { ...s.combat!, enemies: s.combat!.enemies.map((e) => ({ ...e, hp: 1 })) } };
+    s = playRound(s, () => ({ skillId: 'strike', targetId: firstAliveEnemyId(s) }));
+    expect(s.phase).toBe('victory');
+    expect(s.run.nodes[s.run.nodes.length - 1]!.cleared).toBe(true);
+    expect(s.combat!.log.some((l) => l.includes('accomplie'))).toBe(true);
   });
-});
 
-// ————— Combats complets à 1, 2 et 4 joueurs (critère d'acceptation) —————
-
-describe('combat complet à N joueurs', () => {
-  for (const n of [1, 2, 4]) {
-    it(`à ${n} joueur(s) : le premier combat se joue jusqu'à la victoire`, () => {
-      const s = botCombat(enterCombat(setup(n, 100 + n)));
-      expect(s.phase).toBe('reward_draft');
-      expect(s.combat!.enemies.every((e) => !e.alive)).toBe(true);
-    });
-  }
+  it('tous à terre ⇒ defeat (game_over)', () => {
+    let s = enterCombat(setup(2, 3));
+    s = {
+      ...s,
+      players: s.players.map((p) => ({ ...p, hp: 1 })),
+      combat: {
+        ...s.combat!,
+        enemies: s.combat!.enemies.map((e) => ({
+          ...e,
+          intent: { kind: 'aoe' as const, value: 99, description: 'déluge' },
+        })),
+      },
+    };
+    s = playRound(s);
+    expect(s.phase).toBe('game_over');
+    expect(s.players.every((p) => !p.alive || p.downed)).toBe(true);
+  });
 });
 
 // ————— Run complète (critère d'acceptation) —————
 
-describe('run complète sans UI ni réseau', () => {
-  it('combats → boss → game over, à 4 joueurs', () => {
-    // Seed choisi par sweep d'équilibrage : le bot naïf atteint le boss (~1 seed sur 3).
-    const { final, sawBoss } = botRun(4, 1);
-    expect(final.phase).toBe('game_over');
-    expect(sawBoss).toBe(true); // l'équipe a bien atteint (au moins) le boss
+describe('expédition complète sans UI ni réseau', () => {
+  it('une expédition se joue de bout en bout jusqu’à victoire ou défaite, à 4 joueurs', () => {
+    const final = botRun(4, 1);
+    expect(['victory', 'game_over']).toContain(final.phase);
   });
 });
 
@@ -335,14 +380,14 @@ describe('run complète sans UI ni réseau', () => {
 
 describe('déterminisme et invariants', () => {
   it('même seed + mêmes actions ⇒ états finaux identiques', () => {
-    const a = botRun(2, 555).final;
-    const b = botRun(2, 555).final;
+    const a = botRun(2, 555);
+    const b = botRun(2, 555);
     expect(a).toEqual(b);
   });
 
   it('deux seeds différents divergent', () => {
-    const a = botRun(2, 1).final;
-    const b = botRun(2, 2).final;
+    const a = botRun(2, 1);
+    const b = botRun(2, 2);
     expect(a).not.toEqual(b);
   });
 

@@ -1,8 +1,10 @@
 // Événements narratifs risque/récompense (GAME_DESIGN §3) — data-driven, pas de logique.
+// Depuis la Phase 7 (modèle expédition, décision D2) : plus d'or en run — les récompenses
+// sont des boons mineurs (PV max) ou du soin, cohérents avec la progression minime (D1).
 export type EventEffect =
   | { type: 'heal_pct_all'; pct: number } // soigne toute l'équipe (% PV max)
   | { type: 'hurt_pct_all'; pct: number } // blesse toute l'équipe (% PV max, ne met pas à terre)
-  | { type: 'gold_all'; amount: number } // or pour chaque joueur
+  | { type: 'max_hp_all'; amount: number } // boon mineur : +PV max (et PV) pour chaque joueur
   | { type: 'gamble'; win: EventEffect[]; lose: EventEffect[] }; // 50/50 via le PRNG seedé
 
 export interface EventOption {
@@ -30,11 +32,14 @@ export const EVENTS: EventTemplate[] = [
         effects: [{ type: 'heal_pct_all', pct: 25 }],
       },
       {
-        label: 'Piller le bassin',
-        hint: 'De l’or… mais la fontaine se vengera.',
+        label: 'S’immerger dans le bassin',
+        hint: 'Les eaux fortifient… ou punissent.',
         effects: [
-          { type: 'gold_all', amount: 20 },
-          { type: 'hurt_pct_all', pct: 10 },
+          {
+            type: 'gamble',
+            win: [{ type: 'max_hp_all', amount: 2 }],
+            lose: [{ type: 'hurt_pct_all', pct: 10 }],
+          },
         ],
       },
     ],
@@ -46,11 +51,11 @@ export const EVENTS: EventTemplate[] = [
     options: [
       {
         label: 'Tenter le rituel',
-        hint: 'Grosse récompense… ou grosse punition.',
+        hint: 'Grosse bénédiction… ou grosse punition.',
         effects: [
           {
             type: 'gamble',
-            win: [{ type: 'gold_all', amount: 40 }],
+            win: [{ type: 'max_hp_all', amount: 3 }],
             lose: [{ type: 'hurt_pct_all', pct: 20 }],
           },
         ],
@@ -69,8 +74,8 @@ export const EVENTS: EventTemplate[] = [
     options: [
       {
         label: 'Escorter sa carriole',
-        hint: 'Chacun touche une bourse.',
-        effects: [{ type: 'gold_all', amount: 15 }],
+        hint: 'Il offre à chacun une amulette d’endurance.',
+        effects: [{ type: 'max_hp_all', amount: 2 }],
       },
       {
         label: 'Partager son repas',

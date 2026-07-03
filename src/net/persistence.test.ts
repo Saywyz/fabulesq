@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '../engine/reducer';
 import type { GameState } from '../engine/types';
-import { throttledSaver, type GameStore } from './persistence';
+import { SCHEMA_VERSION } from '../engine/types';
+import { isCompatibleSave, throttledSaver, type GameStore } from './persistence';
 
 function stateWithId(stateId: number): GameState {
   return { ...createInitialState({ seed: 1, hostId: 'h', code: 'SAVE01' }), stateId };
@@ -49,5 +50,18 @@ describe('throttledSaver', () => {
     await vi.advanceTimersByTimeAsync(200);
     // pas d'exception non gérée : le test passe s'il arrive ici
     expect(true).toBe(true);
+  });
+});
+
+describe('garde de version au « Reprendre » (invariant C1)', () => {
+  it('une sauvegarde du schéma courant est acceptée', () => {
+    expect(isCompatibleSave(stateWithId(1))).toBe(true);
+  });
+
+  it('une sauvegarde v3 (ou autre) est rejetée proprement, sans crash', () => {
+    const oldSave = { ...stateWithId(1), schemaVersion: 3 };
+    expect(isCompatibleSave(oldSave)).toBe(false);
+    expect(isCompatibleSave({ ...stateWithId(1), schemaVersion: SCHEMA_VERSION + 1 })).toBe(false);
+    expect(isCompatibleSave(null)).toBe(false);
   });
 });

@@ -1,9 +1,11 @@
 // Résolution d'un round : actions des joueurs puis intentions ennemies dans l'ordre
 // d'initiative, fin de tour, puis vérification victoire/défaite (TECH_ARCHITECTURE.md §5).
-import { generateOffers } from '../draft';
+// Depuis la Phase 7 : gagner un combat ordinaire ramène à la carte (plus de draft ni d'or) ;
+// vaincre le boss final bascule en phase `victory`.
 import { BALANCE } from '../data/balance';
 import { ENEMIES } from '../data/enemies';
-import { DRAFT_POOL, SKILLS } from '../data/skills';
+import { SKILLS } from '../data/skills';
+import { advanceNode, runProgress } from '../expedition';
 import { bossActionsPerTurn } from '../scaling';
 import type {
   Combatant,
@@ -11,7 +13,6 @@ import type {
   GameState,
   Player,
   SkillEffect,
-  SkillId,
   StatusKind,
 } from '../types';
 import { assignIntents, spawnEnemy } from './stateMachine';
@@ -53,6 +54,7 @@ export function resolveRound(state: GameState): GameState {
 
   const node = state.run.nodes[state.run.currentNode];
   const eliteDamageMult = node?.type === 'elite' ? BALANCE.eliteDamageMult : 1;
+  const progress = runProgress(state.run);
 
   let players = [...state.players];
   let enemies = [...combat.enemies];
@@ -274,7 +276,7 @@ export function resolveRound(state: GameState): GameState {
           const hpMult = node?.type === 'elite' ? BALANCE.eliteHpMult : 1;
           enemies = [
             ...enemies,
-            spawnEnemy(move.summons, id, `${summonedTemplate.name} (invoquée)`, players.length, state.run.levelNumber, hpMult),
+            spawnEnemy(move.summons, id, `${summonedTemplate.name} (invoquée)`, players.length, progress, hpMult),
           ];
           log.push(`${enemy.name} invoque ${summonedTemplate.name} !`);
         }
@@ -336,49 +338,40 @@ export function resolveRound(state: GameState): GameState {
   }
 
   if (allEnemiesDead) {
-    // Butin (GAME_DESIGN §9) et résurrection de fin de niveau (§8)
-    const goldReward =
-      node?.type === 'boss'
-        ? BALANCE.goldPerBoss
-        : node?.type === 'elite'
-          ? BALANCE.goldPerElite
-          : BALANCE.goldPerCombat;
-    log.push(`Victoire ! Chacun ramasse ${goldReward} pièces d'or.`);
-    players = players.map((p) => ({
-      ...(p.downed ? reviveAt(p, BALANCE.revivedHpPct) : p),
-      gold: p.gold + goldReward,
-    }));
+    // Résurrection de fin de combat (§8) : les joueurs à terre se relèvent à 50 %.
+    players = players.map((p) => (p.downed ? reviveAt(p, BALANCE.revivedHpPct) : p));
 
-    // Après un élite ou un boss, le tirage est plus généreux (GAME_DESIGN §3)
-    const weights =
-      node?.type === 'elite' || node?.type === 'boss'
-        ? BALANCE.eliteRarityWeights
-        : BALANCE.rarityWeights;
-    const draftOffers: Record<string, SkillId[]> = {};
-    const draftPicks: Record<string, SkillId | null> = {};
-    const rerollsLeft: Record<string, number> = {};
-    for (const p of players) {
-      const g = generateOffers(DRAFT_POOL, BALANCE.draftOfferCount, rng, p.skills, weights);
-      rng = g.state;
-      draftOffers[p.id] = g.offers;
-      draftPicks[p.id] = null;
-      rerollsLeft[p.id] = BALANCE.rerollsPerDraft;
+    // Boss final vaincu → l'expédition est accomplie (Phase 7).
+    if (node?.type === 'boss') {
+      log.push('Le boss final s’effondre — expédition accomplie !');
+      return {
+        ...state,
+        players,
+        rngState: rng,
+        phase: 'victory',
+        run: {
+          ...state.run,
+          nodes: state.run.nodes.map((n) =>
+            n.index === state.run.currentNode ? { ...n, cleared: true } : n,
+          ),
+        },
+        combat: { ...combat, enemies, log, initiativeOrder },
+      };
     }
-    return {
+
+    // Combat ordinaire gagné : retour à la carte, on avance sur la route.
+    log.push('Victoire ! La voie est libre.');
+    return advanceNode({
       ...state,
       players,
       rngState: rng,
-      phase: 'reward_draft',
-      draftOffers,
-      draftPicks,
-      rerollsLeft,
       combat: { ...combat, enemies, log, initiativeOrder },
-    };
+    });
   }
 
   // ——— Round suivant : énergie rechargée, nouvelles intentions ———
   players = players.map((p) => ({ ...p, energy: p.maxEnergy }));
-  const intents = assignIntents(enemies, players, rng, state.run.levelNumber, eliteDamageMult);
+  const intents = assignIntents(enemies, players, rng, progress, eliteDamageMult);
   return {
     ...state,
     players,

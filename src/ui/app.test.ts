@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// Test d'acceptation Phase 2 : une partie complète jouable à la souris sur une machine,
-// en hot-seat, sans réseau. Le test pilote le vrai DOM (clics), jamais le reducer en direct.
+// Test d'acceptation Phase 2 (adapté au modèle expédition de la Phase 7) : une partie
+// complète jouable à la souris sur une machine, en hot-seat, sans réseau.
+// Le test pilote le vrai DOM (clics), jamais le reducer en direct.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mountApp } from './app';
 
@@ -34,6 +35,17 @@ function setupLobby(names: string[]): void {
   for (const n of names) addPlayer(n);
 }
 
+/** Lobby prêt → écran de prépa. */
+function goToPrep(playerIds: string[]): void {
+  for (const id of playerIds) click(`[data-ready="${id}"]`);
+  click('[data-start-run]');
+}
+
+/** Prépa → départ : tous les joueurs se déclarent parés. */
+function embark(playerIds: string[]): void {
+  for (const id of playerIds) click(`button[data-prep-ready="${id}"]`);
+}
+
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
   root = document.getElementById('app')!;
@@ -64,7 +76,7 @@ describe('lobby et customisation', () => {
     expect(after.value).toBe(sel.value);
   });
 
-  it('lancer la partie exige que tout le monde soit prêt', () => {
+  it('lancer la partie exige que tout le monde soit prêt, et mène à la prépa', () => {
     setupLobby(['Alice', 'Bob']);
     const start = q<HTMLButtonElement>('[data-start-run]')!;
     expect(start.disabled).toBe(true);
@@ -73,27 +85,55 @@ describe('lobby et customisation', () => {
     click('[data-ready="p2"]');
     expect(q<HTMLButtonElement>('[data-start-run]')!.disabled).toBe(false);
     click('[data-start-run]');
+    expect(q('[data-screen="prep"]')).toBeTruthy(); // la stratégie d'abord, la carte ensuite
+  });
+});
+
+describe('écran de prépa (Phase 7)', () => {
+  it('affiche la bande de longueur (choix d’équipe), les kits, et un bouton paré par joueur', () => {
+    setupLobby(['Alice', 'Bob']);
+    goToPrep(['p1', 'p2']);
+    expect(qa('button[data-band]')).toHaveLength(3); // courte / moyenne / longue
+    expect(qa('[data-kit]')).toHaveLength(2); // le kit de départ de chacun est visible
+    expect(qa('button[data-kit-skill^="p1:"]').length).toBeGreaterThan(0);
+    expect(qa('button[data-prep-ready]')).toHaveLength(2);
+  });
+
+  it('changer la bande de longueur est pris en compte (le bouton devient sélectionné)', () => {
+    setupLobby(['Alice']);
+    goToPrep(['p1']);
+    click('button[data-band="long"]');
+    expect(q('button[data-band="long"]')!.textContent).toContain('✔');
+  });
+
+  it('le départ est donné quand tous les joueurs sont parés → carte d’expédition', () => {
+    setupLobby(['Alice', 'Bob']);
+    goToPrep(['p1', 'p2']);
+    click('button[data-prep-ready="p1"]');
+    expect(q('[data-screen="prep"]')).toBeTruthy(); // Bob n'est pas paré
+    click('button[data-prep-ready="p2"]');
     expect(q('[data-screen="map"]')).toBeTruthy();
+    expect(qa('[data-node]').length).toBeGreaterThanOrEqual(8); // route à longueur variable
+    expect(q('[data-biome]')).toBeTruthy(); // le biome courant est affiché
   });
 });
 
 describe('plateau de combat', () => {
   function enterFirstCombat(): void {
     setupLobby(['Alice', 'Bob']);
-    click('[data-ready="p1"]');
-    click('[data-ready="p2"]');
-    click('[data-start-run]');
+    goToPrep(['p1', 'p2']);
+    embark(['p1', 'p2']);
     click('[data-enter-node]');
   }
 
-  it('affiche ennemis, intentions, barres de vie, statuts, journal et builds de tous', () => {
+  it('affiche ennemis, intentions, barres de vie, statuts, journal et kits de tous', () => {
     enterFirstCombat();
     expect(q('[data-screen="combat"]')).toBeTruthy();
     expect(qa('[data-enemy]').length).toBeGreaterThan(0);
     expect(qa('[data-intent]').length).toBeGreaterThan(0); // intentions télégraphiées visibles
     expect(qa('.hp-bar').length).toBeGreaterThan(0);
     expect(q('[data-log]')).toBeTruthy();
-    expect(qa('[data-build]')).toHaveLength(2); // les builds de tous les joueurs sont visibles
+    expect(qa('[data-build]')).toHaveLength(2); // les kits de tous les joueurs sont visibles
   });
 
   it('planifier : compétence → cible → confirmer ; le dernier confirm résout le round', () => {
@@ -112,16 +152,15 @@ describe('plateau de combat', () => {
   });
 });
 
-describe('partie complète en hot-seat (critère d’acceptation Phase 2)', () => {
-  it('une partie se joue de bout en bout à la souris jusqu’au game over', () => {
+describe('expédition complète en hot-seat (critère d’acceptation Phase 7)', () => {
+  it('une partie se joue de bout en bout à la souris, sans aucun draft, jusqu’à la fin', () => {
     setupLobby(['Alice', 'Bob']);
-    click('[data-ready="p1"]');
-    click('[data-ready="p2"]');
-    click('[data-start-run]');
+    goToPrep(['p1', 'p2']);
+    embark(['p1', 'p2']);
 
-    let sawDraft = false;
+    const finished = () => q('[data-screen="gameover"]') ?? q('[data-screen="victory"]');
     let guard = 0;
-    while (!q('[data-screen="gameover"]') && guard++ < 5000) {
+    while (!finished() && guard++ < 5000) {
       if (click('[data-enter-node]')) continue;
 
       const skillBtn = q<HTMLButtonElement>('button[data-skill]:not([disabled])');
@@ -133,31 +172,19 @@ describe('partie complète en hot-seat (critère d’acceptation Phase 2)', () =
         if (confirm) confirm.click();
         continue;
       }
-
-      const pick = q<HTMLButtonElement>('button[data-pick]');
-      if (pick) {
-        sawDraft = true;
-        pick.click();
-        continue;
-      }
-      // Nœuds hors combat (Phase 4)
+      // Nœuds hors combat
       if (click('[data-event-option="0"]')) continue;
       const rest = q<HTMLButtonElement>('button[data-rest-heal]');
       if (rest) {
         rest.click();
         continue;
       }
-      const skip = q<HTMLButtonElement>('button[data-shop-skip]');
-      if (skip) {
-        skip.click();
-        continue;
-      }
       throw new Error(`bloqué : aucun bouton jouable (guard=${guard})`);
     }
 
     expect(guard).toBeLessThan(5000);
-    expect(q('[data-screen="gameover"]')).toBeTruthy();
-    expect(sawDraft).toBe(true); // on est bien passé par l'écran de draft
+    expect(finished()).toBeTruthy(); // victoire ou défaite, mais une fin
+    expect(q('button[data-pick]')).toBeNull(); // plus aucun écran de draft
     expect(q('[data-new-game]')).toBeTruthy();
   });
 });
@@ -165,16 +192,15 @@ describe('partie complète en hot-seat (critère d’acceptation Phase 2)', () =
 describe('pixel art (acceptation Phase 5)', () => {
   it('la customisation du lobby produit exactement le même sprite en combat', () => {
     setupLobby(['Alice', 'Bob']);
-    // On change la coiffure et la couleur de tenue d'Alice
+    // On change la coiffure d'Alice
     const hairSel = q<HTMLSelectElement>('select[data-appearance="p1:hairStyle"]')!;
     hairSel.value = hairSel.options[1]!.value;
     hairSel.dispatchEvent(new Event('change', { bubbles: true }));
     const lobbySprite = q<HTMLCanvasElement>('canvas[data-sprite]')!.dataset.sprite;
     expect(lobbySprite).toBeTruthy();
 
-    click('[data-ready="p1"]');
-    click('[data-ready="p2"]');
-    click('[data-start-run]');
+    goToPrep(['p1', 'p2']);
+    embark(['p1', 'p2']);
     click('[data-enter-node]');
     const combatSprite = q<HTMLCanvasElement>('[data-player="p1"] canvas[data-sprite]')!.dataset.sprite;
     expect(combatSprite).toBe(lobbySprite); // fidèle, couche par couche
@@ -182,37 +208,11 @@ describe('pixel art (acceptation Phase 5)', () => {
 
   it('chaque type d’ennemi a son sprite', () => {
     setupLobby(['Alice']);
-    click('[data-ready="p1"]');
-    click('[data-start-run]');
+    goToPrep(['p1']);
+    embark(['p1']);
     click('[data-enter-node]');
     for (const enemyCard of qa('[data-enemy]')) {
       expect(enemyCard.querySelector('canvas[data-enemy-sprite]')).toBeTruthy();
     }
-  });
-});
-
-describe('écran de draft', () => {
-  it('le reroll régénère 3 offres et se consomme', () => {
-    // On joue jusqu'au premier draft
-    setupLobby(['Alice', 'Bob']);
-    click('[data-ready="p1"]');
-    click('[data-ready="p2"]');
-    click('[data-start-run]');
-    click('[data-enter-node]');
-    let guard = 0;
-    while (!q('[data-screen="draft"]') && guard++ < 500) {
-      const skillBtn = q<HTMLButtonElement>('button[data-skill]:not([disabled])');
-      if (!skillBtn) throw new Error('bloqué en combat');
-      skillBtn.click();
-      q<HTMLButtonElement>('button[data-target]')?.click();
-      q<HTMLButtonElement>('button[data-confirm]:not([disabled])')?.click();
-    }
-    expect(q('[data-screen="draft"]')).toBeTruthy();
-    expect(qa('button[data-pick^="p1:"]')).toHaveLength(3);
-    click('button[data-reroll="p1"]');
-    expect(qa('button[data-pick^="p1:"]')).toHaveLength(3);
-    // le reroll est consommé : le bouton disparaît (ou se désactive)
-    const reroll = q<HTMLButtonElement>('button[data-reroll="p1"]');
-    expect(!reroll || reroll.disabled).toBe(true);
   });
 });

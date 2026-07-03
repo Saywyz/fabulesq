@@ -1,6 +1,9 @@
 // Types de référence — colonne vertébrale du jeu (TECH_ARCHITECTURE.md §4).
 // engine/data/ les remplit ; engine/reducer.ts les transforme ; net/ les sérialise ; ui/ les lit.
 
+/** Version du schéma d'état : les snapshots/sauvegardes d'une autre version sont rejetés (C1). */
+export const SCHEMA_VERSION = 4;
+
 export type PlayerId = string;
 export type EntityId = string; // joueurs ET ennemis
 export type SkillId = string;
@@ -8,14 +11,14 @@ export type SkillId = string;
 export type Phase =
   | 'lobby'
   | 'customize'
+  | 'prep' // préparation d'expédition : classes, kits, bande de longueur (Phase 7)
   | 'map'
   | 'combat_intent'
   | 'combat_planning'
   | 'combat_resolution'
-  | 'reward_draft'
-  | 'node_event' // choix narratif (Phase 4)
-  | 'node_rest' // repos/forge (Phase 4)
-  | 'node_shop' // boutique (Phase 4)
+  | 'node_event' // choix narratif
+  | 'node_rest' // repos/forge
+  | 'victory' // boss final vaincu : l'expédition est accomplie (Phase 7)
   | 'game_over';
 
 export interface Appearance {
@@ -62,13 +65,12 @@ export interface Player extends Combatant {
   connectionId: string; // clé de présence Supabase
   appearance: Appearance;
   classId: string;
-  skills: SkillId[]; // le build possédé
+  skills: SkillId[]; // le kit possédé
   energy: number;
   maxEnergy: number;
   threat: number; // aggro accumulée
-  gold: number; // butin de combat, dépensé en boutique (GAME_DESIGN §9)
-  ready: boolean; // lobby
-  downed: boolean; // à terre dans le niveau courant
+  ready: boolean; // lobby ET prépa : prêt à avancer
+  downed: boolean; // à terre dans le combat courant
 }
 
 export type IntentKind =
@@ -125,17 +127,22 @@ export interface PlannedAction {
   confirmed: boolean;
 }
 
+/** Bande de longueur d'expédition, choisie par l'équipe en prépa (Phase 7). */
+export type LengthBand = 'short' | 'medium' | 'long';
+
 export interface MapNode {
   index: number;
-  type: 'combat' | 'elite' | 'boss' | 'event' | 'rest' | 'shop';
+  type: 'combat' | 'elite' | 'boss' | 'event' | 'rest';
+  biome: string; // clé de data/biomes.ts — décor et sous-bestiaire du nœud
   cleared: boolean;
 }
 
+/** L'expédition : une suite de nœuds générée en prépa, complétable (boss final au bout). */
 export interface RunState {
   seed: number;
+  band: LengthBand;
   nodes: MapNode[];
   currentNode: number;
-  levelNumber: number;
 }
 
 export interface CombatState {
@@ -148,7 +155,7 @@ export interface CombatState {
 }
 
 export interface GameState {
-  schemaVersion: number; // pour la compat réseau
+  schemaVersion: number; // garde de compat réseau + persistance (== SCHEMA_VERSION)
   stateId: number; // compteur monotone : ordonnancement des snapshots
   hostId: PlayerId;
   code: string; // code de la partie
@@ -157,14 +164,9 @@ export interface GameState {
   players: Player[];
   run: RunState;
   combat: CombatState | null;
-  draftOffers: Record<PlayerId, SkillId[]>; // 3 offres par joueur
-  draftPicks: Record<PlayerId, SkillId | null>;
-  rerollsLeft: Record<PlayerId, number>;
-  // Nœuds hors combat (Phase 4)
+  // Nœuds hors combat
   event: { id: string } | null; // événement en cours au nœud courant
   restDone: Record<PlayerId, boolean>; // qui a fait son choix de repos
-  shopOffers: Record<PlayerId, SkillId[]>; // étal de la boutique par joueur
-  shopDone: Record<PlayerId, boolean>; // qui a acheté ou passé
 }
 
 // Actions = seule façon de faire évoluer l'état. Émises par l'UI, appliquées par le reducer.
@@ -173,18 +175,17 @@ export type Action =
   | { t: 'set_appearance'; playerId: PlayerId; appearance: Appearance }
   | { t: 'set_class'; playerId: PlayerId; classId: string }
   | { t: 'set_ready'; playerId: PlayerId; ready: boolean }
-  | { t: 'start_run' }
+  | { t: 'start_run' } // lobby → prépa
+  // Prépa d'expédition (Phase 7) : bande de longueur d'équipe, départ quand tous prêts
+  | { t: 'set_length'; band: LengthBand }
+  | { t: 'prep_ready'; playerId: PlayerId; ready: boolean }
   | { t: 'enter_node'; nodeIndex: number }
   | { t: 'plan_action'; playerId: PlayerId; skillId: SkillId; targetId?: EntityId }
   | { t: 'confirm_action'; playerId: PlayerId }
   | { t: 'resolve_round' } // déclenché quand tous ont confirmé
-  | { t: 'draft_pick'; playerId: PlayerId; skillId: SkillId }
-  | { t: 'draft_reroll'; playerId: PlayerId }
-  // Nœuds hors combat (Phase 4)
+  // Nœuds hors combat
   | { t: 'event_choice'; playerId: PlayerId; optionIndex: number } // décision d'équipe
   | { t: 'rest_choice'; playerId: PlayerId; choice: 'heal' | 'forget'; skillId?: SkillId }
-  | { t: 'shop_buy'; playerId: PlayerId; skillId: SkillId }
-  | { t: 'shop_skip'; playerId: PlayerId }
   // Joueurs à terre : encourager un allié debout, une fois par round (Phase 6)
   | { t: 'cheer'; playerId: PlayerId; targetId: EntityId }
   | { t: 'leave'; playerId: PlayerId };

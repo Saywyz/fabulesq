@@ -1,16 +1,17 @@
-// Scaling de difficulté selon le nombre de joueurs et le niveau (GAME_DESIGN.md §7).
+// Scaling de difficulté : nombre de joueurs + progression normalisée dans l'expédition
+// (GAME_DESIGN.md §7, pacing BUILD_PLAN_V2 §A.4).
 import { BALANCE } from './data/balance';
 
-/** PV ennemis : ~linéaire avec N joueurs, croissance par niveau. */
-export function scaledEnemyHp(baseHp: number, playerCount: number, levelNumber: number): number {
-  const levelMult = 1 + (BALANCE.levelHpGrowthPct / 100) * (levelNumber - 1);
-  return Math.round(baseHp * playerCount * BALANCE.enemyHpPerPlayer * levelMult);
+/** PV ennemis : ~linéaire avec N joueurs, pacing par la progression p ∈ [0,1]. */
+export function scaledEnemyHp(baseHp: number, playerCount: number, progress: number): number {
+  const paceMult = 1 + (BALANCE.pacingHpGrowthPct / 100) * progress;
+  return Math.round(baseHp * playerCount * BALANCE.enemyHpPerPlayer * paceMult);
 }
 
-/** Dégâts ennemis : croissance par niveau uniquement (la menace scale par les actions, pas les stats). */
-export function scaledEnemyDamage(base: number, levelNumber: number): number {
-  const levelMult = 1 + (BALANCE.levelDamageGrowthPct / 100) * (levelNumber - 1);
-  return Math.round(base * levelMult);
+/** Dégâts ennemis : pacing par la progression uniquement (la menace scale par les actions, pas les stats). */
+export function scaledEnemyDamage(base: number, progress: number): number {
+  const paceMult = 1 + (BALANCE.pacingDamageGrowthPct / 100) * progress;
+  return Math.round(base * paceMult);
 }
 
 /** Actions du boss par tour : ⌈N/3⌉ pour que « + de joueurs = + dur » reste vrai. */

@@ -63,6 +63,12 @@ describe('deux clients en ligne (hôte + invité)', () => {
     click(guestRoot, '[data-ready="g1"]');
     expect(q<HTMLButtonElement>(hostRoot, '[data-start-run]')!.disabled).toBe(false);
     click(hostRoot, '[data-start-run]');
+    // Prépa d'expédition (Phase 7) : chacun ne peut parer que sa fiche
+    expect(q(hostRoot, '[data-screen="prep"]')).toBeTruthy();
+    expect(q(guestRoot, '[data-screen="prep"]')).toBeTruthy();
+    expect(q<HTMLButtonElement>(guestRoot, 'button[data-prep-ready="h1"]')!.disabled).toBe(true);
+    click(hostRoot, 'button[data-prep-ready="h1"]');
+    click(guestRoot, 'button[data-prep-ready="g1"]');
     expect(q(hostRoot, '[data-screen="map"]')).toBeTruthy();
     expect(q(guestRoot, '[data-screen="map"]')).toBeTruthy(); // le snapshot a suivi
 
@@ -95,6 +101,7 @@ describe('deux clients en ligne (hôte + invité)', () => {
     host.dispatch({ t: 'join', player: { id: 'h1', name: 'Hina', connectionId: 'h1' } });
     host.dispatch({ t: 'set_ready', playerId: 'h1', ready: true });
     host.dispatch({ t: 'start_run' });
+    host.dispatch({ t: 'prep_ready', playerId: 'h1', ready: true }); // départ d'expédition
     mountSession(hostRoot, host);
 
     // Arrivée tardive : la partie est déjà sur la carte

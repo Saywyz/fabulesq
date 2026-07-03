@@ -146,7 +146,7 @@ export function lobbyScreen(state: GameState, ctx: Ctx): HTMLElement {
         : isGuest
           ? 'L’hôte lancera la partie…'
           : allReady
-            ? '⚔ Lancer l’aventure !'
+            ? '🗺️ Préparer l’expédition !'
             : 'En attente que tout le monde soit prêt…',
     ),
   );

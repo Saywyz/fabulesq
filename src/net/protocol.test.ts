@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { makeMessage, shouldApplySnapshot } from './protocol';
+import { SCHEMA_VERSION } from '../engine/types';
+import { isCompatibleSnapshot, makeMessage, shouldApplySnapshot } from './protocol';
 
 describe('protocole réseau (TECH_ARCHITECTURE §6.2)', () => {
   it("makeMessage construit l'enveloppe complète", () => {
@@ -15,5 +16,13 @@ describe('protocole réseau (TECH_ARCHITECTURE §6.2)', () => {
     expect(shouldApplySnapshot(5, 6)).toBe(true);
     expect(shouldApplySnapshot(5, 5)).toBe(false); // doublon
     expect(shouldApplySnapshot(5, 3)).toBe(false); // en retard
+  });
+
+  it('isCompatibleSnapshot : garde de version (invariant C1 de BUILD_PLAN_V2)', () => {
+    expect(isCompatibleSnapshot({ schemaVersion: SCHEMA_VERSION })).toBe(true);
+    expect(isCompatibleSnapshot({ schemaVersion: 3 })).toBe(false); // sauvegardes/snapshots v3
+    expect(isCompatibleSnapshot({ schemaVersion: SCHEMA_VERSION + 1 })).toBe(false);
+    expect(isCompatibleSnapshot({})).toBe(false);
+    expect(isCompatibleSnapshot(null)).toBe(false);
   });
 });

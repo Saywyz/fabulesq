@@ -1,22 +1,27 @@
-// Tests Phase 4 : contenu (pool, synergies), nœuds élite/événement/repos/boutique,
-// or, invocation, soigneur ennemi, scaling du boss, divergence des runs par les picks.
+// Tests Phase 4, adaptés au modèle expédition (Phase 7) : contenu (pool, synergies),
+// mécaniques de compétences, invocation, soigneur ennemi, nœuds événement/repos,
+// élites renforcées, scaling du boss.
 import { describe, expect, it } from 'vitest';
 import { getStacks } from './combat/status';
-import { BALANCE } from './data/balance';
 import { EVENTS } from './data/events';
-import { DRAFT_POOL, SKILLS } from './data/skills';
+import { SKILL_POOL, SKILLS } from './data/skills';
 import { createInitialState, reduce } from './reducer';
 import type { GameState, Player, SkillId } from './types';
 
 // ————— Helpers —————
 
+/** Lobby → prépa → départ (bande moyenne par défaut). */
 function setup(n: number, seed = 42): GameState {
   let s = createInitialState({ seed, hostId: 'p1', code: 'PHASE4' });
   for (let i = 1; i <= n; i++) {
     s = reduce(s, { t: 'join', player: { id: `p${i}`, name: `P${i}`, connectionId: `c${i}` } });
     s = reduce(s, { t: 'set_ready', playerId: `p${i}`, ready: true });
   }
-  return reduce(s, { t: 'start_run' });
+  s = reduce(s, { t: 'start_run' });
+  for (let i = 1; i <= n; i++) {
+    s = reduce(s, { t: 'prep_ready', playerId: `p${i}`, ready: true });
+  }
+  return s;
 }
 
 function standing(s: GameState): Player[] {
@@ -58,38 +63,41 @@ function playRound(s: GameState, pick: (s: GameState, p: Player) => Pick_ | null
   return s;
 }
 
-const strikeFirst = (s: GameState): Pick_ => ({
-  skillId: 'strike',
-  targetId: s.combat!.enemies.find((e) => e.alive)!.id,
-});
-
-/** Entre dans le premier nœud (combat) depuis la carte. */
+/** Entre dans le nœud courant depuis la carte. */
 function enterCurrent(s: GameState): GameState {
   return reduce(s, { t: 'enter_node', nodeIndex: s.run.currentNode });
 }
 
-/** Gagne le combat courant au bot « frappe » puis draft la première offre. */
-function winCombatAndDraft(s: GameState): GameState {
-  let guard = 0;
-  while (s.phase === 'combat_planning' && guard++ < 300) s = playRound(s, strikeFirst);
-  expect(s.phase).toBe('reward_draft');
-  for (const p of s.players) {
-    if (s.phase !== 'reward_draft') break;
-    const offers = s.draftOffers[p.id] ?? [];
-    if (offers.length > 0 && s.draftPicks[p.id] == null) {
-      s = reduce(s, { t: 'draft_pick', playerId: p.id, skillId: offers[0]! });
-    }
-  }
-  return s;
+/** Saute au nœud d'index donné (les précédents sont marqués nettoyés). */
+function jumpTo(s: GameState, index: number): GameState {
+  return {
+    ...s,
+    run: {
+      ...s.run,
+      currentNode: index,
+      nodes: s.run.nodes.map((n) => (n.index < index ? { ...n, cleared: true } : n)),
+    },
+  };
+}
+
+/** Force le type du nœud d'index donné (en préservant son biome). */
+function forceNodeType(s: GameState, index: number, type: 'event' | 'rest'): GameState {
+  return {
+    ...s,
+    run: {
+      ...s.run,
+      nodes: s.run.nodes.map((n) => (n.index === index ? { ...n, type } : n)),
+    },
+  };
 }
 
 // ————— Contenu —————
 
 describe('contenu Phase 4', () => {
   it('le pool contient 20 à 30 compétences valides', () => {
-    expect(DRAFT_POOL.length).toBeGreaterThanOrEqual(20);
-    expect(DRAFT_POOL.length).toBeLessThanOrEqual(30);
-    for (const id of DRAFT_POOL) {
+    expect(SKILL_POOL.length).toBeGreaterThanOrEqual(20);
+    expect(SKILL_POOL.length).toBeLessThanOrEqual(30);
+    for (const id of SKILL_POOL) {
       const skill = SKILLS[id]!;
       expect(skill.id).toBe(id);
       expect(skill.effects.length).toBeGreaterThan(0);
@@ -116,38 +124,20 @@ describe('contenu Phase 4', () => {
   });
 });
 
-// ————— Carte Phase 4 —————
+// ————— Élites —————
 
-describe('carte à nœuds variés', () => {
-  it('la carte suit le layout : combat, spécial, combat, élite, boss', () => {
-    const s = setup(2);
-    const types = s.run.nodes.map((n) => n.type);
-    expect(types).toHaveLength(5);
-    expect(types[0]).toBe('combat');
-    expect(['event', 'rest', 'shop']).toContain(types[1]);
-    expect(types[2]).toBe('combat');
-    expect(types[3]).toBe('elite');
-    expect(types[4]).toBe('boss');
-  });
-
-  it('un nœud élite produit des ennemis plus costauds qu’un nœud combat', () => {
-    let s = setup(2, 5);
-    // On saute directement au nœud élite (index 3)
-    const sElite = enterCurrent({
-      ...s,
-      run: {
-        ...s.run,
-        currentNode: 3,
-        nodes: s.run.nodes.map((n) => (n.index < 3 ? { ...n, cleared: true } : n)),
-      },
-    });
+describe('nœuds élite', () => {
+  it('un nœud élite produit une vague plus costaude que le premier combat', () => {
+    const s = setup(2, 5);
+    const eliteIndex = s.run.nodes.find((n) => n.type === 'elite')!.index;
+    const sElite = enterCurrent(jumpTo(s, eliteIndex));
     const sCombat = enterCurrent(s);
     const totalHp = (st: GameState) => st.combat!.enemies.reduce((sum, e) => sum + e.maxHp, 0);
     expect(totalHp(sElite)).toBeGreaterThan(totalHp(sCombat));
   });
 });
 
-// ————— Nouvelles mécaniques de compétences —————
+// ————— Mécaniques de compétences —————
 
 describe('mécaniques de compétences Phase 4', () => {
   function combatWith(skills: Record<string, SkillId[]>, seed = 11): GameState {
@@ -231,7 +221,7 @@ describe('mécaniques de compétences Phase 4', () => {
   });
 });
 
-// ————— Nouveaux ennemis —————
+// ————— Invocateur & soigneur —————
 
 describe('invocateur et soigneur', () => {
   function craftCombatWithEnemy(enemyIntent: 'summon' | 'heal', seed = 3): GameState {
@@ -271,22 +261,11 @@ describe('invocateur et soigneur', () => {
   });
 });
 
-// ————— Or, événement, repos, boutique —————
+// ————— Nœuds hors combat —————
 
-describe('nœuds hors combat et économie', () => {
-  it('la victoire rapporte de l’or à chaque joueur', () => {
-    let s = enterCurrent(setup(2, 21));
-    let guard = 0;
-    while (s.phase === 'combat_planning' && guard++ < 300) s = playRound(s, strikeFirst);
-    expect(s.phase).toBe('reward_draft');
-    for (const p of s.players) expect(p.gold).toBe(BALANCE.goldPerCombat);
-  });
-
-  it("l'événement s'ouvre au nœud spécial, applique ses effets et rend la main à la carte", () => {
-    // Niveau 1 : le spécial est un événement. On y va après le combat 0.
-    let s = winCombatAndDraft(enterCurrent(setup(2, 21)));
-    expect(s.phase).toBe('map');
-    expect(s.run.nodes[s.run.currentNode]!.type).toBe('event');
+describe('nœuds hors combat', () => {
+  it("l'événement s'ouvre, applique ses effets (boon/soin, plus d'or) et rend la main à la carte", () => {
+    let s = jumpTo(forceNodeType(setup(2, 21), 1, 'event'), 1);
     s = enterCurrent(s);
     expect(s.phase).toBe('node_event');
     const template = EVENTS.find((e) => e.id === s.event!.id)!;
@@ -294,29 +273,18 @@ describe('nœuds hors combat et économie', () => {
 
     // On abîme l'équipe puis on choisit une option et on vérifie qu'un effet a eu lieu
     s = { ...s, players: s.players.map((p) => ({ ...p, hp: Math.max(1, p.hp - 5) })) };
-    const before = s.players.map((p) => ({ hp: p.hp, gold: p.gold }));
+    const before = s.players.map((p) => ({ hp: p.hp, maxHp: p.maxHp }));
     s = reduce(s, { t: 'event_choice', playerId: 'p1', optionIndex: 0 });
     expect(s.phase).toBe('map');
-    expect(s.run.nodes.find((n) => n.type === 'event')!.cleared).toBe(true);
-    const changed = s.players.some((p, i) => p.hp !== before[i]!.hp || p.gold !== before[i]!.gold);
+    expect(s.run.nodes[1]!.cleared).toBe(true);
+    const changed = s.players.some((p, i) => p.hp !== before[i]!.hp || p.maxHp !== before[i]!.maxHp);
     const noOpPossible = template.options[0]!.effects.length === 0;
     expect(changed || noOpPossible).toBe(true);
   });
 
   it('au repos, chacun choisit : soigner (+40 % PV max) ou oublier une compétence', () => {
-    let s = setup(2, 8);
-    // On force le nœud courant en repos
-    s = {
-      ...s,
-      run: {
-        ...s.run,
-        currentNode: 1,
-        nodes: s.run.nodes.map((n) =>
-          n.index === 1 ? { ...n, type: 'rest' as const } : n.index === 0 ? { ...n, cleared: true } : n,
-        ),
-      },
-      players: s.players.map((p) => ({ ...p, hp: 10 })),
-    };
+    let s = jumpTo(forceNodeType(setup(2, 8), 1, 'rest'), 1);
+    s = { ...s, players: s.players.map((p) => ({ ...p, hp: 10 })) };
     s = enterCurrent(s);
     expect(s.phase).toBe('node_rest');
     s = reduce(s, { t: 'rest_choice', playerId: 'p1', choice: 'heal' });
@@ -326,37 +294,6 @@ describe('nœuds hors combat et économie', () => {
     expect(s.players.find((p) => p.id === 'p2')!.skills).not.toContain('taunt_shout');
     expect(s.phase).toBe('map'); // tous ont choisi
   });
-
-  it('la boutique vend des compétences contre de l’or ; achat refusé sans le sou', () => {
-    let s = setup(2, 8);
-    s = {
-      ...s,
-      run: {
-        ...s.run,
-        currentNode: 1,
-        nodes: s.run.nodes.map((n) =>
-          n.index === 1 ? { ...n, type: 'shop' as const } : n.index === 0 ? { ...n, cleared: true } : n,
-        ),
-      },
-      players: s.players.map((p) => ({ ...p, gold: p.id === 'p1' ? 100 : 0 })),
-    };
-    s = enterCurrent(s);
-    expect(s.phase).toBe('node_shop');
-    const offer1 = s.shopOffers['p1']![0]!;
-    const price = BALANCE.shopPrices[SKILLS[offer1]!.rarity];
-    s = reduce(s, { t: 'shop_buy', playerId: 'p1', skillId: offer1 });
-    const p1 = s.players.find((p) => p.id === 'p1')!;
-    expect(p1.skills).toContain(offer1);
-    expect(p1.gold).toBe(100 - price);
-
-    // p2 n'a pas un sou : achat refusé, il doit passer
-    const offer2 = s.shopOffers['p2']![0]!;
-    const before = s;
-    s = reduce(s, { t: 'shop_buy', playerId: 'p2', skillId: offer2 });
-    expect(s).toBe(before);
-    s = reduce(s, { t: 'shop_skip', playerId: 'p2' });
-    expect(s.phase).toBe('map');
-  });
 });
 
 // ————— Acceptation : boss plus menaçant à 6 qu'à 2 —————
@@ -364,14 +301,7 @@ describe('nœuds hors combat et économie', () => {
 describe('scaling du boss (GAME_DESIGN §7)', () => {
   function bossRound(n: number): string[] {
     let s = setup(n, 77);
-    s = {
-      ...s,
-      run: {
-        ...s.run,
-        currentNode: 4,
-        nodes: s.run.nodes.map((node) => (node.index < 4 ? { ...node, cleared: true } : node)),
-      },
-    };
+    s = jumpTo(s, s.run.nodes.length - 1);
     s = enterCurrent(s);
     expect(s.combat!.enemies[0]!.enemyType).toBe('ogre_boss');
     // Intention forcée : attaque télégraphiée sur p1
@@ -396,55 +326,3 @@ describe('scaling du boss (GAME_DESIGN §7)', () => {
   });
 });
 
-// ————— Acceptation : deux runs divergent selon les compétences choisies —————
-
-describe('les picks façonnent la run', () => {
-  function botRun(seed: number, pickOffer: 'first' | 'last'): GameState {
-    let s = setup(2, seed);
-    let guard = 0;
-    while (s.phase !== 'game_over' && guard++ < 4000) {
-      if (s.phase === 'map') s = enterCurrent(s);
-      else if (s.phase === 'combat_planning') {
-        s = playRound(s, (st, p) => {
-          const skillId = p.skills.find((id) => (SKILLS[id]?.cost ?? 99) <= p.energy);
-          if (!skillId) return null;
-          const skill = SKILLS[skillId]!;
-          const target =
-            skill.targeting === 'enemy'
-              ? st.combat!.enemies.find((e) => e.alive)?.id
-              : skill.targeting === 'ally'
-                ? p.id
-                : undefined;
-          return { skillId, targetId: target };
-        });
-      } else if (s.phase === 'reward_draft') {
-        for (const p of s.players) {
-          if (s.phase !== 'reward_draft') break;
-          const offers = s.draftOffers[p.id] ?? [];
-          if (offers.length > 0 && s.draftPicks[p.id] == null) {
-            const skillId = pickOffer === 'first' ? offers[0]! : offers[offers.length - 1]!;
-            s = reduce(s, { t: 'draft_pick', playerId: p.id, skillId });
-          }
-        }
-      } else if (s.phase === 'node_event') {
-        s = reduce(s, { t: 'event_choice', playerId: 'p1', optionIndex: 0 });
-      } else if (s.phase === 'node_rest') {
-        for (const p of s.players) s = reduce(s, { t: 'rest_choice', playerId: p.id, choice: 'heal' });
-      } else if (s.phase === 'node_shop') {
-        for (const p of s.players) s = reduce(s, { t: 'shop_skip', playerId: p.id });
-      } else {
-        throw new Error(`phase inattendue : ${s.phase}`);
-      }
-    }
-    expect(guard).toBeLessThan(4000);
-    return s;
-  }
-
-  it('même seed, picks différents ⇒ runs différentes ; même stratégie ⇒ run identique', () => {
-    const first = botRun(2026, 'first');
-    const last = botRun(2026, 'last');
-    expect(first).not.toEqual(last); // les compétences choisies changent la partie
-    const firstAgain = botRun(2026, 'first');
-    expect(firstAgain).toEqual(first); // et le déterminisme tient toujours
-  });
-});

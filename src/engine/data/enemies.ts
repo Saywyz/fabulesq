@@ -88,20 +88,4 @@ export const ENEMIES: Record<string, EnemyTemplate> = {
   },
 };
 
-/** Vagues des nœuds combat — choisies par rotation déterministe (niveau + index de nœud). */
-export const COMBAT_WAVES: string[][] = [
-  ['slime', 'slime'],
-  ['goblin', 'slime'],
-  ['goblin', 'goblin', 'slime'],
-  ['cultist', 'goblin'],
-  ['shaman', 'goblin', 'slime'],
-];
-
-/** Vagues élites : plus rudes, multipliées par eliteHpMult / eliteDamageMult. */
-export const ELITE_WAVES: string[][] = [
-  ['cultist', 'goblin', 'goblin'],
-  ['shaman', 'cultist', 'goblin'],
-  ['goblin', 'goblin', 'goblin', 'slime'],
-];
-
-export const BOSS_WAVE: string[] = ['ogre_boss'];
+// Les vagues de rencontre vivent désormais dans data/biomes.ts (tables par biome, Phase 7).

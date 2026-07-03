@@ -1,22 +1,23 @@
 // Mise en place du combat et assignation des intentions ennemies (TECH_ARCHITECTURE.md §5).
 import { BALANCE } from '../data/balance';
-import { BOSS_WAVE, COMBAT_WAVES, ELITE_WAVES, ENEMIES } from '../data/enemies';
+import { BIOMES } from '../data/biomes';
+import { ENEMIES } from '../data/enemies';
 import { nextInt } from '../rng';
 import { scaledEnemyDamage, scaledEnemyHp } from '../scaling';
 import type { Enemy, Intent, MapNode, Player } from '../types';
 import { chooseTarget } from './targeting';
 
-/** Fabrique un ennemi à partir de son template, PV scalés (N joueurs, niveau, élite). */
+/** Fabrique un ennemi à partir de son template, PV scalés (N joueurs, progression, élite). */
 export function spawnEnemy(
   enemyType: string,
   id: string,
   name: string,
   playerCount: number,
-  levelNumber: number,
+  progress: number,
   hpMult: number,
 ): Enemy {
   const template = ENEMIES[enemyType]!;
-  const hp = Math.round(scaledEnemyHp(template.baseHp, playerCount, levelNumber) * hpMult);
+  const hp = Math.round(scaledEnemyHp(template.baseHp, playerCount, progress) * hpMult);
   return {
     id,
     name,
@@ -32,21 +33,23 @@ export function spawnEnemy(
   };
 }
 
-/** Construit la vague d'un nœud : rotation déterministe par niveau/index, élite renforcé. */
-export function buildEnemies(node: MapNode, playerCount: number, levelNumber: number): Enemy[] {
+/** Construit la vague d'un nœud depuis la table de rencontres de SON biome,
+ *  par rotation déterministe sur l'index du nœud ; élite renforcé. */
+export function buildEnemies(node: MapNode, playerCount: number, progress: number): Enemy[] {
+  const encounters = BIOMES[node.biome]!.encounters;
   const wave =
     node.type === 'boss'
-      ? BOSS_WAVE
+      ? encounters.boss
       : node.type === 'elite'
-        ? ELITE_WAVES[(levelNumber - 1) % ELITE_WAVES.length]!
-        : COMBAT_WAVES[(levelNumber - 1 + node.index) % COMBAT_WAVES.length]!;
+        ? encounters.elite[node.index % encounters.elite.length]!
+        : encounters.combat[node.index % encounters.combat.length]!;
   const hpMult = node.type === 'elite' ? BALANCE.eliteHpMult : 1;
 
   return wave.map((enemyType, i) => {
     const template = ENEMIES[enemyType]!;
     const name =
       wave.filter((t) => t === enemyType).length > 1 ? `${template.name} ${i + 1}` : template.name;
-    return spawnEnemy(enemyType, `e${i + 1}`, name, playerCount, levelNumber, hpMult);
+    return spawnEnemy(enemyType, `e${i + 1}`, name, playerCount, progress, hpMult);
   });
 }
 
@@ -64,11 +67,11 @@ export function assignIntents(
   enemies: Enemy[],
   players: Player[],
   rngState: number,
-  levelNumber: number,
+  progress: number,
   damageMult = 1,
 ): IntentsResult {
   let rng = rngState;
-  const scaled = (value: number) => Math.round(scaledEnemyDamage(value, levelNumber) * damageMult);
+  const scaled = (value: number) => Math.round(scaledEnemyDamage(value, progress) * damageMult);
   const aliveCount = enemies.filter((e) => e.alive).length;
 
   const result = enemies.map((e): Enemy => {

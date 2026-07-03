@@ -49,6 +49,19 @@ describe('sessions host / guest (host-authoritative, §6)', () => {
     expect(host.getState()).toEqual(guest.getState());
   });
 
+  it("un snapshot d'une autre version de schéma est ignoré (garde C1)", () => {
+    const { a, b } = fakePair();
+    const host = hostWithLobby(a);
+    const guest = createGuestSession({ transport: b, senderId: 'g1', localPlayerId: 'g1' });
+    guest.dispatch(joinAsGuest);
+    const current = guest.getState()!;
+    // Un snapshot v3 (ancienne version) arrive avec un stateId pourtant plus récent
+    const stale = { ...current, schemaVersion: 3, stateId: current.stateId + 100 };
+    a.send({ type: 'STATE_SNAPSHOT', senderId: 'host-1', ts: 0, payload: stale });
+    expect(guest.getState()).toEqual(current); // pas appliqué
+    expect(guest.getState()).toEqual(host.getState());
+  });
+
   it('un snapshot en retard (stateId plus petit) est ignoré', () => {
     const { a, b } = fakePair();
     const host = hostWithLobby(a);

@@ -3,11 +3,12 @@ import type { GameState } from '../engine/types';
 import type { Ctx } from './context';
 import { el } from './dom';
 import { combatScreen } from './screens/combat';
-import { draftScreen } from './screens/draft';
 import { gameOverScreen } from './screens/gameover';
 import { lobbyScreen } from './screens/lobby';
 import { mapScreen } from './screens/map';
-import { eventScreen, restScreen, shopScreen } from './screens/nodes';
+import { eventScreen, restScreen } from './screens/nodes';
+import { prepScreen } from './screens/prep';
+import { victoryScreen } from './screens/victory';
 import { isMuted, toggleMute } from './sound';
 
 /** Barre persistante : titre, code de partie, pause éventuelle, coupe-son. */
@@ -50,20 +51,20 @@ function screenFor(state: GameState, ctx: Ctx): HTMLElement {
     case 'lobby':
     case 'customize':
       return lobbyScreen(state, ctx);
+    case 'prep':
+      return prepScreen(state, ctx);
     case 'map':
       return mapScreen(state, ctx);
     case 'combat_intent':
     case 'combat_planning':
     case 'combat_resolution':
       return combatScreen(state, ctx);
-    case 'reward_draft':
-      return draftScreen(state, ctx);
     case 'node_event':
       return eventScreen(state, ctx);
     case 'node_rest':
       return restScreen(state, ctx);
-    case 'node_shop':
-      return shopScreen(state, ctx);
+    case 'victory':
+      return victoryScreen(state, ctx);
     case 'game_over':
       return gameOverScreen(state, ctx);
   }

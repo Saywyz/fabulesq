@@ -313,5 +313,5 @@ export const SKILLS: Record<SkillId, Skill> = {
   },
 };
 
-/** Compétences proposables au draft (tout le pool). */
-export const DRAFT_POOL: SkillId[] = Object.keys(SKILLS);
+/** Pool complet de compétences — servira à l'assemblage de kit en prépa (Phase 11). */
+export const SKILL_POOL: SkillId[] = Object.keys(SKILLS);

@@ -4,6 +4,13 @@
 // Schéma attendu : voir scripts/supabase-setup.sql
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { GameState } from '../engine/types';
+import { SCHEMA_VERSION } from '../engine/types';
+
+/** Garde de version au « Reprendre » (invariant C1) : une sauvegarde d'un autre schéma
+ *  est rejetée proprement (message clair côté UI, pas de crash). */
+export function isCompatibleSave(state: GameState | null): boolean {
+  return state !== null && state.schemaVersion === SCHEMA_VERSION;
+}
 
 export interface GameStore {
   save(code: string, state: GameState): Promise<void>;

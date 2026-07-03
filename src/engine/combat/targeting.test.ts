@@ -20,7 +20,6 @@ function makePlayer(id: string, overrides: Partial<Player> = {}): Player {
     energy: 3,
     maxEnergy: 3,
     threat: 0,
-    gold: 0,
     ready: true,
     downed: false,
     ...overrides,

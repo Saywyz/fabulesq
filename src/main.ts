@@ -5,7 +5,7 @@ import { createInitialState } from './engine/reducer';
 import { connectTransport, isOnlineAvailable } from './net/client';
 import { createGuestSession } from './net/guest';
 import { createHostSession } from './net/host';
-import { createSupabaseStore, throttledSaver } from './net/persistence';
+import { createSupabaseStore, isCompatibleSave, throttledSaver } from './net/persistence';
 import { createHotseatSession, mountSession } from './ui/app';
 import { el } from './ui/dom';
 import { homeScreen } from './ui/screens/home';
@@ -100,6 +100,12 @@ function showHome(error?: string): void {
           const saved = await store.load(code);
           if (!saved) {
             showHome(`Aucune sauvegarde trouvée pour ${code}.`);
+            return;
+          }
+          if (!isCompatibleSave(saved)) {
+            showHome(
+              `La sauvegarde ${code} vient d'une autre version du jeu (v${saved.schemaVersion}) : impossible de la reprendre.`,
+            );
             return;
           }
           const hostName = saved.players.find((p) => p.id === saved.hostId)?.name ?? 'Hôte';

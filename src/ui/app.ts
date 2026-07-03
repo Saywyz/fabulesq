@@ -41,9 +41,9 @@ export function createHotseatSession(opts: HotseatOptions): GameSession {
 function playTransitionSounds(prev: GameState | null, next: GameState | null): void {
   if (!prev || !next || prev === next) return;
   if (prev.phase !== next.phase) {
-    if (next.phase === 'reward_draft') sound.victory();
+    if (next.phase === 'victory') sound.victory();
     else if (next.phase === 'game_over') sound.defeat();
-    else if (next.phase === 'node_shop') sound.gold();
+    else if (next.phase === 'map' && prev.phase === 'combat_planning') sound.victory(); // combat gagné
   }
   const hpOf = (s: GameState): Map<string, number> => {
     const m = new Map<string, number>();

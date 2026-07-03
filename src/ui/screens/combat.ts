@@ -1,6 +1,7 @@
 // Plateau de combat — Phase 5 : sprites, ciblage en cliquant les cartes, planification
 // séquentielle (un joueur actif à la fois), nombres flottants, flashs de dégâts.
 // L'UI lit l'état et émet des Action — zéro règle calculée ici.
+import { BIOMES } from '../../engine/data/biomes';
 import { SKILLS } from '../../engine/data/skills';
 import type { Enemy, GameState, Player, Skill } from '../../engine/types';
 import { energyDots, hpBar } from '../components/bars';
@@ -76,7 +77,7 @@ function playerCard(
     el('div', { class: 'sprite-box' }, charSprite(p.appearance, 3), float ?? ''),
     el('strong', { class: 'entity-name' }, p.name, p.downed ? ' 🪦' : planned?.confirmed ? ' ✔' : ''),
     hpBar(p.hp, p.maxHp),
-    el('div', { class: 'meta' }, energyDots(p.energy, p.maxEnergy), el('span', {}, `💰${p.gold}`), el('span', { title: 'menace' }, `😡${p.threat}`)),
+    el('div', { class: 'meta' }, energyDots(p.energy, p.maxEnergy), el('span', { title: 'menace' }, `😡${p.threat}`)),
     statusChips(p),
     el(
       'div',
@@ -192,7 +193,8 @@ export function combatScreen(state: GameState, ctx: Ctx): HTMLElement {
     active && pendingSkill?.targeting === 'ally' ? { activeId: active.id, onTarget: plan } : null;
 
   const node = state.run.nodes[state.run.currentNode];
-  const nodeLabel = node?.type === 'boss' ? '👹 BOSS' : node?.type === 'elite' ? '🗡️ Élite' : '⚔️ Combat';
+  const nodeLabel = node?.type === 'boss' ? '👹 BOSS FINAL' : node?.type === 'elite' ? '🗡️ Élite' : '⚔️ Combat';
+  const biomeName = node ? (BIOMES[node.biome]?.name ?? node.biome) : '';
 
   const logBox = el(
     'div',
@@ -208,7 +210,7 @@ export function combatScreen(state: GameState, ctx: Ctx): HTMLElement {
   return el(
     'div',
     { class: 'screen combat-screen' , 'data-screen': 'combat' },
-    el('div', { class: 'combat-header' }, el('h2', {}, `${nodeLabel} — round ${combat.round}`), el('span', { class: 'muted' }, `Niveau ${state.run.levelNumber}`)),
+    el('div', { class: 'combat-header' }, el('h2', {}, `${nodeLabel} — round ${combat.round}`), el('span', { class: 'muted' }, `Nœud ${state.run.currentNode + 1}/${state.run.nodes.length} · ${biomeName}`)),
     el('div', { class: 'battlefield' }, el('div', { class: 'cards enemies' }, ...combat.enemies.map((e) => enemyCard(e, fx, enemyTarget)))),
     el('div', { class: 'cards players' }, ...state.players.map((p) => playerCard(p, state, fx, allyTarget))),
     active
